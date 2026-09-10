@@ -1,0 +1,1239 @@
+import React, { useState, useEffect, useRef } from "react";
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from "recharts";
+
+const INK = "#0D0F1E";
+const INDIGO = "#1E2340";
+const CAMWOOD = "#C4652E";
+const GOLD = "#D9A94A";
+const IVORY = "#F3EAD8";
+const SAGE = "#8B9A7C";
+const CUPS_BLUE = "#3E5C76";
+const SWORD_GRAY = "#6B7280";
+const GREEN = "#2F6B4F";
+const RED = "#8B2E2E";
+const HAIRLINE = "rgba(243,234,216,0.14)";
+
+/* five-point orientation, reused everywhere a "star choice" is needed */
+const ORIENTATIONS = [
+  { key: "spiritual", label: "Spiritual", angle: -90, voice: "soulful, symbolic, unhurried" },
+  { key: "emotional", label: "Emotional", angle: -18, voice: "warm, feeling-first, attuned" },
+  { key: "psychological", label: "Psychological", angle: 54, voice: "reflective, pattern-aware, introspective" },
+  { key: "physical", label: "Physical", angle: 126, voice: "grounded, practical, direct" },
+  { key: "mental", label: "Mental", angle: 198, voice: "clear, analytical, structured" },
+];
+
+/* ---------- Tarot deck (78) ---------- */
+const MAJORS = [
+  ["The Fool", "A leap into the unknown, trusting the first step before the plan is finished.", "Hesitation, recklessness, or a leap taken without any preparation at all."],
+  ["The Magician", "Having every tool you need already in hand, and the will to use them.", "Talent going unused, or using your skill to mislead rather than build."],
+  ["The High Priestess", "Trusting a quiet, private knowing over what's loudly obvious.", "Ignoring your own instincts, or secrets that have started to cost you."],
+  ["The Empress", "Growth, nurture, and something maturing because you've tended it.", "Neglect, or giving so much you've left nothing for yourself."],
+  ["The Emperor", "Structure and steady authority that makes room for things to hold.", "Control tightened past the point it's helping."],
+  ["The Hierophant", "Learning from tradition, mentorship, or an established way of doing things.", "Rigid rule-following, or rejecting guidance out of pure stubbornness."],
+  ["The Lovers", "A real choice between two paths, made from values rather than convenience.", "Misalignment, or a choice avoided until it makes itself."],
+  ["The Chariot", "Willpower pulling opposing forces in one direction through sheer focus.", "Losing direction, or forcing progress that isn't actually under control."],
+  ["Strength", "Quiet, patient courage that doesn't need to dominate to win.", "Self-doubt, or force used where patience would have worked better."],
+  ["The Hermit", "Stepping back to think clearly, alone, before deciding anything.", "Isolation that's gone on too long, or avoiding people who could help."],
+  ["Wheel of Fortune", "A turn in circumstance that was always going to come around.", "Resisting a change that's already in motion."],
+  ["Justice", "A fair, clear-eyed reckoning with cause and effect.", "An imbalance not yet accounted for, or a decision made unfairly."],
+  ["The Hanged Man", "Pausing on purpose to see a situation from an angle you've missed.", "Stalling that's stopped being useful, delay for its own sake."],
+  ["Death", "A definite ending that clears the way for what's next.", "Clinging to something that has already run its course."],
+  ["Temperance", "Patient blending of opposites into something workable.", "Excess, or forcing two things together that don't actually mix."],
+  ["The Devil", "A pattern or attachment that has more control over you than you'd like.", "Recognizing the chain and taking the first real step to loosen it."],
+  ["The Tower", "A sudden, disruptive truth that breaks something built on a bad foundation.", "Bracing against inevitable change, delaying a collapse that will happen anyway."],
+  ["The Star", "Quiet hope returning after a hard stretch, with room to heal.", "Disconnection from hope, doubting that things can get better."],
+  ["The Moon", "Uncertainty and things that aren't fully visible yet.", "Confusion clearing, or fear that's larger than the actual threat."],
+  ["The Sun", "Clarity, vitality, and something working out plainly and well.", "Clouded joy, or success that hasn't been fully claimed yet."],
+  ["Judgement", "A reckoning or reassessment that calls you to answer for a chapter.", "Self-judgment that's too harsh, or avoiding a needed reckoning."],
+  ["The World", "Completion — a cycle closing with everything in its place.", "Something left unfinished, close but not quite closed."],
+];
+const SUITS = [
+  { key: "Wands", theme: "ambition, drive, and creative fire", color: CAMWOOD },
+  { key: "Cups", theme: "feeling, connection, and the emotional undercurrent", color: CUPS_BLUE },
+  { key: "Swords", theme: "thought, conflict, and hard truths", color: SWORD_GRAY },
+  { key: "Pentacles", theme: "resources, work, and the material world", color: SAGE },
+];
+const RANK_PHRASES = {
+  Ace: "a fresh spark, right at the start", Two: "a first choice, or a balance to strike",
+  Three: "early growth through collaboration", Four: "a pause to consolidate what's been built",
+  Five: "friction, and a real test", Six: "cooperation, or relief after a struggle",
+  Seven: "a challenge that asks for patience over force", Eight: "movement — mastery still in progress",
+  Nine: "nearing completion, close to a threshold", Ten: "a full ending, the cycle completed",
+  Page: "a student's curiosity, still learning the terrain", Knight: "focused pursuit, moving fast toward a goal",
+  Queen: "mature, intuitive command", King: "confident mastery, fully in charge",
+};
+const RANKS = Object.keys(RANK_PHRASES);
+const MINORS = SUITS.flatMap((s) => RANKS.map((r) => ({ name: `${r} of ${s.key}`, suit: s.key, rank: r })));
+function tarotMeaning(name) {
+  const major = MAJORS.find((m) => m[0] === name);
+  if (major) return { upright: major[1], reversed: major[2] };
+  const minor = MINORS.find((m) => m.name === name);
+  const suit = SUITS.find((s) => s.key === minor.suit);
+  const phrase = RANK_PHRASES[minor.rank];
+  return { upright: `${phrase[0].toUpperCase()}${phrase.slice(1)}, in the realm of ${suit.theme}.`, reversed: `${phrase}, but blocked, delayed, or turned inward, in the realm of ${suit.theme}.` };
+}
+function tarotColor(name) {
+  const major = MAJORS.find((m) => m[0] === name);
+  if (major) return GOLD;
+  return SUITS.find((s) => s.key === MINORS.find((m) => m.name === name).suit).color;
+}
+const TAROT_DECK = [...MAJORS.map((m) => m[0]), ...MINORS.map((m) => m.name)];
+
+/* ---------- Odu (256, placeholder structure) ---------- */
+const PRINCIPAL_ODU = ["Eji Ogbe", "Oyeku Meji", "Iwori Meji", "Odi Meji", "Irosun Meji", "Owonrin Meji", "Obara Meji", "Okanran Meji", "Ogunda Meji", "Osa Meji", "Ika Meji", "Oturupon Meji", "Otura Meji", "Irete Meji", "Ose Meji", "Ofun Meji"];
+const ODU_ROOT = PRINCIPAL_ODU.map((n) => n.replace(" Meji", ""));
+function oduMarks(i) { return i.toString(2).padStart(4, "0").split("").map(Number); }
+const ODU_256 = [];
+for (let i = 0; i < 16; i++) for (let j = 0; j < 16; j++) ODU_256.push({ name: i === j ? PRINCIPAL_ODU[i] : `${ODU_ROOT[i]} ${ODU_ROOT[j]}`, a: i, b: j });
+
+/* ---------- numerology / life path / zodiac ---------- */
+function letterValue(ch) {
+  const idx = "abcdefghijklmnopqrstuvwxyz".indexOf(ch.toLowerCase());
+  return idx === -1 ? null : (idx % 9) + 1;
+}
+function reduceNumber(n) {
+  while (n > 9 && n !== 11 && n !== 22 && n !== 33) n = String(n).split("").reduce((a, d) => a + Number(d), 0);
+  return n;
+}
+function computeNameNumerology(name) {
+  const letters = name.replace(/[^a-zA-Z]/g, "").split("").map((ch) => ({ letter: ch.toUpperCase(), value: letterValue(ch) }));
+  const sum = letters.reduce((a, l) => a + l.value, 0);
+  return { letters, sum, reduced: sum ? reduceNumber(sum) : null };
+}
+function computeLifePath(dob) {
+  if (!dob) return null;
+  const digits = dob.replace(/[^0-9]/g, "");
+  if (!digits) return null;
+  return reduceNumber(digits.split("").reduce((a, d) => a + Number(d), 0));
+}
+const ZODIAC_ANIMALS = ["Rat", "Ox", "Tiger", "Rabbit", "Dragon", "Snake", "Horse", "Goat", "Monkey", "Rooster", "Dog", "Pig"];
+function computeChineseZodiac(dob) {
+  if (!dob) return null;
+  const year = new Date(dob).getFullYear();
+  if (!year || isNaN(year)) return null;
+  let idx = (year - 4) % 12;
+  if (idx < 0) idx += 12;
+  return ZODIAC_ANIMALS[idx];
+}
+function withDerived(p) {
+  const d = { ...p };
+  if (p.name) { const n = computeNameNumerology(p.name); d.numerologyLetters = n.letters; d.numerologySum = n.sum; d.numerologyReduced = n.reduced; }
+  if (p.dob) { d.lifePath = computeLifePath(p.dob); d.chineseZodiac = computeChineseZodiac(p.dob); }
+  return d;
+}
+
+/* ---------- storage ---------- */
+async function safeGet(key) {
+  try { const r = await window.storage.get(key); return r ? r.value : null; } catch (e) { return null; }
+}
+async function pushEvent(type, extra) {
+  try {
+    const raw = await safeGet("ifatarot:events");
+    const list = raw ? JSON.parse(raw) : [];
+    list.push({ type, date: new Date().toISOString(), ...extra });
+    await window.storage.set("ifatarot:events", JSON.stringify(list.slice(-500)));
+  } catch (e) {}
+}
+
+/* ---------- dimension configs, renamed evocatively ---------- */
+const DIMENSIONS = {
+  "1D": { label: "1D of thought", modes: [{ key: "single", title: "The Single Flame", label: "One card, one focus", traditionMode: "single", positions: [{ key: "focus", label: "Focus" }] }] },
+  "2D": {
+    label: "2D of thought",
+    modes: [
+      { key: "duality", title: "The Twin Paths", label: "Agreeable and disagreeable", traditionMode: "perPosition", positions: [{ key: "agreeable", label: "Agreeable" }, { key: "disagreeable", label: "Disagreeable" }] },
+      { key: "polarity", title: "Sky and Root", label: "Spiritual above, physical below", traditionMode: "perPosition", positions: [{ key: "spiritual", label: "Spiritual" }, { key: "physical", label: "Physical" }] },
+    ],
+  },
+  "3D": {
+    label: "3D of thought",
+    modes: [
+      { key: "timeline", title: "The River's Course", label: "Past, present, future", traditionMode: "single", positions: [{ key: "past", label: "Past" }, { key: "present", label: "Present" }, { key: "future", label: "Future" }] },
+      { key: "forces", title: "The Threshold", label: "What blocks, what centers, what guides", traditionMode: "single", positions: [{ key: "blocking", label: "What's blocking" }, { key: "core", label: "Core focus" }, { key: "guiding", label: "What's guiding" }] },
+    ],
+  },
+  "7D": {
+    label: "7D of thought",
+    modes: [
+      { key: "star", title: "The Crown of Seven", label: "A core with six around it", traditionMode: "single", positions: [{ key: "core", label: "Core" }, { key: "p1", label: "Past" }, { key: "p2", label: "Present" }, { key: "p3", label: "Future" }, { key: "p4", label: "Challenge" }, { key: "p5", label: "Guidance" }, { key: "p6", label: "Outcome" }] },
+      { key: "sides", title: "The Twin Pillars", label: "A core flanked three and three", traditionMode: "single", positions: [{ key: "core", label: "Core" }, { key: "l1", label: "Left 1" }, { key: "l2", label: "Left 2" }, { key: "l3", label: "Left 3" }, { key: "r1", label: "Right 1" }, { key: "r2", label: "Right 2" }, { key: "r3", label: "Right 3" }] },
+      { key: "split", title: "Heaven's Three, Earth's Four", label: "Three spiritual, four physical", traditionMode: "perGroup", groups: [{ key: "spiritual", label: "Spiritual (3 cards)", positionKeys: ["s1", "s2", "s3"] }, { key: "physical", label: "Physical (4 cards)", positionKeys: ["b1", "b2", "b3", "b4"] }], positions: [{ key: "s1", label: "Spiritual 1" }, { key: "s2", label: "Spiritual 2" }, { key: "s3", label: "Spiritual 3" }, { key: "b1", label: "Physical 1" }, { key: "b2", label: "Physical 2" }, { key: "b3", label: "Physical 3" }, { key: "b4", label: "Physical 4" }] },
+    ],
+  },
+  "9D": {
+    label: "9D of thought",
+    modes: [
+      { key: "dimensions", title: "The Nine Realms", label: "Nine planes of your life, one each", traditionMode: "single", positions: [{ key: "spiritual", label: "Spiritual" }, { key: "mental", label: "Mental" }, { key: "emotional", label: "Emotional" }, { key: "physical", label: "Physical" }, { key: "psychological", label: "Psychological" }, { key: "past", label: "Past" }, { key: "present", label: "Present" }, { key: "future", label: "Future" }, { key: "path", label: "Path forward" }] },
+      { key: "grid", title: "The Nine Chambers", label: "A three-by-three field", traditionMode: "single", positions: [{ key: "t1", label: "Top left" }, { key: "t2", label: "Top center" }, { key: "t3", label: "Top right" }, { key: "m1", label: "Mid left" }, { key: "m2", label: "Mid center" }, { key: "m3", label: "Mid right" }, { key: "b1", label: "Bottom left" }, { key: "b2", label: "Bottom center" }, { key: "b3", label: "Bottom right" }] },
+    ],
+  },
+};
+
+function drawCard(tradition, reversalsOn) {
+  if (tradition === "tarot") { const name = TAROT_DECK[Math.floor(Math.random() * TAROT_DECK.length)]; return { tradition, name, reversed: reversalsOn && Math.random() < 0.5 }; }
+  const odu = ODU_256[Math.floor(Math.random() * ODU_256.length)];
+  return { tradition, name: odu.name, reversed: reversalsOn && Math.random() < 0.5 };
+}
+
+function jargonLine(profile) {
+  return profile.jargon === "esoteric" ? "The seeker is comfortable with traditional esoteric and divinatory vocabulary — you may use it where it fits." : "Never use esoteric or occult jargon, invented mystical terminology, or words like \"energies\" or \"the universe wants\". Speak in plain, everyday language.";
+}
+function verbosityLine(profile) {
+  return profile.verbosity === "brief" ? "Keep it tight: only the critical points, no padding, a handful of short sentences." : "Give a fuller reading, still plain-spoken, with enough detail to feel complete.";
+}
+function orientationVoice(key) { return ORIENTATIONS.find((o) => o.key === key)?.voice || "balanced"; }
+
+function buildSystemPrompt(profile) {
+  const planeLabel = ORIENTATIONS.find((o) => o.key === profile.plane)?.label || "unspecified";
+  const birth = profile.dob || profile.tob || profile.pob
+    ? `Known blueprint details — date of birth: ${profile.dob || "not given"}, time of birth: ${profile.tob || "not given"}, place of birth: ${profile.pob || "not given"}.`
+    : "No birth details were given, so speak in general terms about their blueprint rather than inventing specifics.";
+  const numerology = profile.numerologyReduced ? `Name expression number: ${profile.numerologyReduced} (raw letter sum ${profile.numerologySum}).` : "";
+  const lifePath = profile.lifePath ? `Life path number: ${profile.lifePath}.` : "";
+  const zodiac = profile.chineseZodiac ? `Chinese zodiac: ${profile.chineseZodiac}.` : "";
+  const relay = profile.relayMode && profile.relayForName
+    ? `\nImportant: ${profile.name || "the seeker"} is not asking for themselves right now — they are consulting on behalf of ${profile.relayForName}, someone who isn't using Ifatarot. Speak about ${profile.relayForName} in the third person, in language ${profile.name || "the seeker"} can easily relay to them afterward. Don't address ${profile.relayForName} directly.`
+    : "";
+  return `You are ${profile.agentName || "the cosmic strategist"}, a personal divination guide inside an app called Ifatarot, which blends Ifa divination and Tarot. You are speaking to ${profile.name || "the seeker"}, whose dominant plane is ${planeLabel} and whose personal orientation is ${profile.element || "unspecified"}. Your own orientation as their agent is ${profile.agentElement || "unspecified"} — let it flavor your voice (${orientationVoice(profile.agentElement)}) without ever naming it outright.
+
+${birth} ${numerology} ${lifePath} ${zodiac}
+You may reference these blueprint numbers when genuinely relevant to the question — never recite them as a checklist.
+${relay}
+${jargonLine(profile)} ${verbosityLine(profile)}
+
+Strict boundaries: only speak to the cards or odu actually drawn, the seeker's own question, and Ifatarot itself. Never introduce generic self-help advice, motivational filler, or anything unrelated to what was drawn. Do not hedge with "some believe" — speak with grounded confidence, not fortune-teller theatrics. If a related card or odu from the same tradition is genuinely worth exploring next, you may name it once, briefly, but only if it truly serves the question. Always end with one concrete, practical next step. Sign off in your own voice as their agent, never as an AI assistant.`;
+}
+function buildMultiPrompt(dimKey, modeKey, dimLabel, modeTitle, resolved, question) {
+  const lines = resolved.map((p) => `${p.label}: ${p.cards.map((c) => `${c.name}${c.reversed ? " (reversed)" : ""} [${c.tradition === "tarot" ? "Tarot" : "Ifa"}]`).join(" and ")}`);
+  let extra = "";
+  if (dimKey === "2D" && modeKey === "duality") extra = "\n\nThis is a literal light-versus-dark reading: treat the Agreeable side as bright, open, affirming energy, and the Disagreeable side as its dark, resistant counterpart. Let that light/dark contrast actively shape how you interpret both cards, not just their positions.";
+  if (dimKey === "2D" && modeKey === "polarity") extra = "\n\nThis is a spiritual-versus-physical reading: the Spiritual position carries a green, higher, sky-facing energy, and the Physical position carries a red, rooted, earth-facing energy. Let that elemental contrast actively shape your interpretation of both cards.";
+  return `This is a ${dimLabel} reading, laid out as "${modeTitle}". Positions and what was drawn:\n${lines.join("\n")}\n\nThe seeker's question: "${question}"${extra}\n\nAddress each position by its label, in order, then close with a short synthesis and one concrete next step.`;
+}
+function getDeviceId() {
+  let id = localStorage.getItem("ifatarot:device-id");
+  if (!id) { id = "dev-" + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("ifatarot:device-id", id); }
+  return id;
+}
+async function callAgentMessages(system, messages, opts) {
+  const res = await fetch("/api/generate", {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Device-Id": getDeviceId() },
+    body: JSON.stringify({ max_tokens: 1200, system, messages, internal: !!(opts && opts.internal) }),
+  });
+  const data = await res.json();
+  if (res.status === 429) throw new Error(data.error || "Rate limited");
+  if (data.error) throw new Error(data.error);
+  return (data.content || []).map((b) => b.text || "").join("\n").trim();
+}
+async function callAgent(system, user, opts) { return callAgentMessages(system, [{ role: "user", content: user }], opts); }
+
+/* streaming variant — calls onDelta(partialText) as chunks arrive, for perceived speed */
+async function streamAgentMessages(system, messages, onDelta) {
+  const res = await fetch("/api/generate", {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Device-Id": getDeviceId() },
+    body: JSON.stringify({ max_tokens: 1200, system, messages, stream: true }),
+  });
+  if (res.status === 429) { const data = await res.json().catch(() => ({})); throw new Error(data.error || "Rate limited"); }
+  if (!res.body || !res.body.getReader) {
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const text = (data.content || []).map((b) => b.text || "").join("\n").trim();
+    onDelta(text);
+    return text;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let full = "", buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const jsonStr = line.slice(5).trim();
+      if (!jsonStr || jsonStr === "[DONE]") continue;
+      try {
+        const evt = JSON.parse(jsonStr);
+        if (evt.type === "content_block_delta" && evt.delta && evt.delta.text) {
+          full += evt.delta.text;
+          onDelta(full);
+        }
+      } catch (e) {}
+    }
+  }
+  return full.trim();
+}
+
+/* after a reading or a strategist reply, quietly checks whether something durable
+   about the seeker surfaced, and if so which of the five orientations it belongs to */
+async function extractVesselInsight(exchangeSummary) {
+  const system = `You read one exchange from a divination app and decide what it revealed about the seeker (not the cards — the person). There are two kinds of thing worth capturing:
+KNOWN — a durable fact, pattern, or truth about who they already are or what they're carrying.
+POWER — a strength, quality, or way of being they are visibly reaching for but haven't fully claimed yet; something the reading or conversation is pointing them toward becoming.
+Most exchanges reveal neither — only flag something genuinely durable, not small talk.
+Reply with ONLY one line, in one of these exact forms:
+NONE
+KNOWN:AREA:insight under 12 words, about the seeker directly
+POWER:AREA:Short Power Name|one line under 14 words on what claiming it would look like
+AREA must be exactly one of: spiritual, mental, emotional, physical, psychological.`;
+  try {
+    const text = await callAgent(system, exchangeSummary, { internal: true });
+    const clean = text.trim();
+    if (clean.toUpperCase().startsWith("NONE")) return null;
+    const knownMatch = clean.match(/^KNOWN\s*:\s*(spiritual|mental|emotional|physical|psychological)\s*:\s*(.+)$/i);
+    if (knownMatch) return { kind: "known", area: knownMatch[1].toLowerCase(), text: knownMatch[2].trim() };
+    const powerMatch = clean.match(/^POWER\s*:\s*(spiritual|mental|emotional|physical|psychological)\s*:\s*([^|]+)\|(.+)$/i);
+    if (powerMatch) return { kind: "power", area: powerMatch[1].toLowerCase(), name: powerMatch[2].trim(), guidance: powerMatch[3].trim() };
+    return null;
+  } catch (e) { return null; }
+}
+
+/* ---------- UI atoms ---------- */
+function Field({ label, children }) { return <div style={{ marginBottom: 20 }}><div style={{ fontSize: 13, color: SAGE, marginBottom: 8 }}>{label}</div>{children}</div>; }
+function TextInput(props) { return <input {...props} style={{ width: "100%", boxSizing: "border-box", background: "rgba(243,234,216,0.05)", border: `1px solid ${HAIRLINE}`, borderRadius: 6, padding: "12px 14px", color: IVORY, fontSize: 15, fontFamily: "Karla, sans-serif", outline: "none", ...props.style }} />; }
+function PillButton({ active, onClick, children }) { return <button onClick={onClick} style={{ padding: "9px 16px", borderRadius: 999, fontSize: 13.5, cursor: "pointer", border: `1px solid ${active ? GOLD : HAIRLINE}`, background: active ? "rgba(217,169,74,0.14)" : "transparent", color: active ? GOLD : IVORY, fontFamily: "Karla, sans-serif" }}>{children}</button>; }
+function PrimaryButton({ onClick, children, disabled, style }) { return <button onClick={onClick} disabled={disabled} style={{ width: "100%", padding: "15px 20px", borderRadius: 8, border: "none", background: disabled ? "rgba(196,101,46,0.35)" : CAMWOOD, color: IVORY, fontSize: 15, fontFamily: "Karla, sans-serif", fontWeight: 600, cursor: disabled ? "default" : "pointer", ...style }}>{children}</button>; }
+function GhostButton({ onClick, children, style }) { return <button onClick={onClick} style={{ padding: "12px 18px", borderRadius: 8, border: `1px solid ${HAIRLINE}`, background: "transparent", color: IVORY, fontSize: 14, fontFamily: "Karla, sans-serif", cursor: "pointer", ...style }}>{children}</button>; }
+function Header({ title, onBack }) { return <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>{onBack && <button onClick={onBack} style={{ background: "none", border: "none", color: SAGE, fontSize: 20, cursor: "pointer", padding: 0 }}>&larr;</button>}<h1 style={{ fontFamily: "Fraunces, serif", fontWeight: 500, fontSize: 22, color: IVORY, margin: 0 }}>{title}</h1></div>; }
+function BottomNav({ screen, go }) {
+  const items = [["home", "Home"], ["strategist", "Strategist"], ["library-root", "Library"]];
+  return <div style={{ display: "flex", borderTop: `1px solid ${HAIRLINE}`, marginTop: 32, paddingTop: 14, gap: 8 }}>{items.map(([key, label]) => <button key={key} onClick={() => go(key)} style={{ flex: 1, background: "none", border: "none", color: screen === key ? GOLD : SAGE, fontSize: 12.5, fontFamily: "Karla, sans-serif", cursor: "pointer", padding: "6px 0" }}>{label}</button>)}</div>;
+}
+
+/* ---------- the juicy star ---------- */
+function StarSelector({ value, onChange, decorative, size }) {
+  const cx = 150, cy = 150, outer = 116, inner = 46;
+  const bigPts = [];
+  for (let i = 0; i < 6; i++) { const a = (-90 + i * 60) * Math.PI / 180; const r = i % 2 === 0 ? outer : inner * 0.7; bigPts.push(`${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`); }
+  const sparkles = [[60, 60], [235, 50], [250, 220], [45, 210], [150, 20]];
+  return (
+    <svg viewBox="0 0 300 300" style={{ width: size || "100%", maxWidth: size || 320, display: "block", margin: "0 auto" }}>
+      <defs>
+        <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor={GOLD} stopOpacity="0.35" />
+          <stop offset="100%" stopColor={GOLD} stopOpacity="0" />
+        </radialGradient>
+        <linearGradient id="starFill" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={GOLD} stopOpacity="0.5" />
+          <stop offset="100%" stopColor={CAMWOOD} stopOpacity="0.25" />
+        </linearGradient>
+      </defs>
+      <circle cx={cx} cy={cy} r={130} fill="url(#glow)" />
+      <polygon points={bigPts.join(" ")} fill="url(#starFill)" stroke={GOLD} strokeWidth="1.2" opacity="0.85" />
+      {sparkles.map(([x, y], i) => <circle key={i} cx={x} cy={y} r={i % 2 === 0 ? 1.6 : 1} fill={IVORY} opacity="0.6"><animate attributeName="opacity" values="0.2;0.8;0.2" dur={`${2.5 + i}s`} repeatCount="indefinite" /></circle>)}
+      {!decorative && ORIENTATIONS.map((o) => {
+        const rad = (o.angle * Math.PI) / 180;
+        const x = cx + outer * Math.cos(rad), y = cy + outer * Math.sin(rad);
+        const selected = value === o.key;
+        return (
+          <g key={o.key} onClick={() => onChange(o.key)} style={{ cursor: "pointer" }}>
+            {selected && <circle cx={x} cy={y} r={34} fill="none" stroke={GOLD} strokeWidth="1"><animate attributeName="r" values="30;40;30" dur="2s" repeatCount="indefinite" /><animate attributeName="opacity" values="0.8;0.1;0.8" dur="2s" repeatCount="indefinite" /></circle>}
+            <circle cx={x} cy={y} r={32} fill={selected ? "rgba(217,169,74,0.25)" : "rgba(243,234,216,0.05)"} stroke={selected ? GOLD : HAIRLINE} strokeWidth={selected ? 2 : 1} />
+            <text x={x} y={y + 4} textAnchor="middle" fontSize="11.5" fontFamily="Karla, sans-serif" fontWeight={selected ? 700 : 400} fill={selected ? GOLD : IVORY}>{o.label}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ---------- placeholder card art ---------- */
+function TarotArt({ name, size }) {
+  const color = tarotColor(name); const isMajor = MAJORS.some((m) => m[0] === name);
+  return <svg viewBox="0 0 100 140" style={{ width: size || 64, height: (size || 64) * 1.4, display: "block" }}><rect x="1" y="1" width="98" height="138" rx="6" fill={INDIGO} stroke={color} strokeWidth="2" />{isMajor ? <polygon points="50,20 58,45 84,45 63,60 71,86 50,71 29,86 37,60 16,45 42,45" fill={color} opacity="0.85" /> : <circle cx="50" cy="52" r="22" fill="none" stroke={color} strokeWidth="4" />}<text x="50" y="122" textAnchor="middle" fontSize="9" fontFamily="Karla, sans-serif" fill={IVORY}>{name.length > 16 ? name.slice(0, 15) + "…" : name}</text></svg>;
+}
+function OduArt({ name, size }) {
+  const entry = ODU_256.find((o) => o.name === name) || { a: 0, b: 0 };
+  const marksA = oduMarks(entry.a), marksB = oduMarks(entry.b);
+  return <svg viewBox="0 0 100 140" style={{ width: size || 64, height: (size || 64) * 1.4, display: "block" }}><rect x="1" y="1" width="98" height="138" rx="6" fill={INK} stroke={GOLD} strokeWidth="2" />{[0, 1, 2, 3].map((row) => <g key={row}><rect x="28" y={20 + row * 14} width={marksA[row] ? "14" : "6"} height="4" fill={GOLD} />{marksA[row] ? <rect x="46" y={20 + row * 14} width="14" height="4" fill={GOLD} /> : null}<rect x="58" y={20 + row * 14} width={marksB[row] ? "14" : "6"} height="4" fill={GOLD} />{marksB[row] ? <rect x="76" y={20 + row * 14} width="14" height="4" fill={GOLD} /> : null}</g>)}<text x="50" y="122" textAnchor="middle" fontSize="8.5" fontFamily="Karla, sans-serif" fill={IVORY}>{name.length > 18 ? name.slice(0, 17) + "…" : name}</text></svg>;
+}
+function CardArt({ tradition, name, size }) { return tradition === "tarot" ? <TarotArt name={name} size={size} /> : <OduArt name={name} size={size} />; }
+
+/* ---------- rolling credits (no midnight reset — regenerate over time) ---------- */
+const CREDIT_MAX = 8;
+const CREDIT_REFILL_HOURS = 3;
+function computeCredits(profile) {
+  const now = new Date();
+  const last = profile.lastCreditRefillAt ? new Date(profile.lastCreditRefillAt) : now;
+  const elapsedHours = (now - last) / 3600000;
+  const toAdd = Math.floor(elapsedHours / CREDIT_REFILL_HOURS);
+  const startCredits = profile.credits ?? CREDIT_MAX;
+  const credits = Math.min(CREDIT_MAX, startCredits + Math.max(0, toAdd));
+  const newLast = toAdd > 0 ? new Date(last.getTime() + toAdd * CREDIT_REFILL_HOURS * 3600000) : last;
+  const hoursUntilNext = credits >= CREDIT_MAX ? null : CREDIT_REFILL_HOURS - (now - newLast) / 3600000;
+  return { credits, lastCreditRefillAt: newLast.toISOString(), hoursUntilNext };
+}
+function formatWait(hours) {
+  if (hours == null) return "";
+  const totalMin = Math.max(1, Math.round(hours * 60));
+  const h = Math.floor(totalMin / 60), m = totalMin % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+/* ---------- app ---------- */
+const emptyProfile = { name: "", agentName: "", plane: "", element: "", agentElement: "", dob: "", tob: "", pob: "", jargon: "simple", verbosity: "warm", tarotReversals: true, ifaReversalsExperimental: false, residentDimension: null, credits: CREDIT_MAX, lastCreditRefillAt: null, relayMode: false, relayForName: "", vesselInsights: {}, vesselPowers: {} };
+
+export default function Ifatarot() {
+  const [screen, setScreen] = useState("home");
+  const [onboarded, setOnboarded] = useState(false);
+  const [installPromptEvent, setInstallPromptEvent] = useState(null);
+  const [showInstallCard, setShowInstallCard] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+  const [profile, setProfile] = useState(emptyProfile);
+  const [draftProfile, setDraftProfile] = useState(emptyProfile);
+  const [obStep, setObStep] = useState(0);
+
+  const [dimKey, setDimKey] = useState(null);
+  const [mode, setMode] = useState(null);
+  const [assignment, setAssignment] = useState({});
+  const [question, setQuestion] = useState("");
+  const [listening, setListening] = useState(false);
+  const [resolved, setResolved] = useState(null);
+  const [reading, setReading] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [dimensionNotes, setDimensionNotes] = useState([]);
+
+  const [libraryTradition, setLibraryTradition] = useState(null);
+  const [cardDetail, setCardDetail] = useState(null);
+  const [cardDetailBack, setCardDetailBack] = useState("library");
+
+  const [strategistLog, setStrategistLog] = useState([]);
+  const [strategistInput, setStrategistInput] = useState("");
+  const [strategistLoading, setStrategistLoading] = useState(false);
+  const [strategistSuggestion, setStrategistSuggestion] = useState(null);
+
+  const [notesList, setNotesList] = useState([]);
+  const [activeNote, setActiveNote] = useState(null);
+  const [noteTitle, setNoteTitle] = useState("");
+  const [residentMsg, setResidentMsg] = useState("");
+
+  const [events, setEvents] = useState([]);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const recogRef = useRef(null);
+  const timerRef = useRef(null);
+  const baseQuestionRef = useRef("");
+  const [viaResident, setViaResident] = useState(false);
+  const [attachNoteId, setAttachNoteId] = useState(null);
+  const [noteChatInput, setNoteChatInput] = useState("");
+  const [noteChatLoading, setNoteChatLoading] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const p = await safeGet("ifatarot:profile");
+      if (p) {
+        let parsed = { ...emptyProfile, ...JSON.parse(p) };
+        const c = computeCredits(parsed);
+        parsed = { ...parsed, credits: c.credits, lastCreditRefillAt: c.lastCreditRefillAt };
+        setProfile(parsed); setDraftProfile(parsed); setOnboarded(true);
+        try { await window.storage.set("ifatarot:profile", JSON.stringify(parsed)); } catch (e) {}
+      }
+    })();
+
+    const standalone = window.matchMedia && window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+    setIsStandalone(!!standalone);
+    setIsIOS(/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream);
+    const onBeforeInstall = (e) => { e.preventDefault(); setInstallPromptEvent(e); };
+    window.addEventListener("beforeinstallprompt", onBeforeInstall);
+    (async () => {
+      const dismissed = await safeGet("ifatarot:install-dismissed");
+      if (!dismissed && !standalone) setShowInstallCard(true);
+    })();
+    return () => window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+  }, []);
+
+  async function dismissInstallCard() {
+    setShowInstallCard(false);
+    try { await window.storage.set("ifatarot:install-dismissed", "1"); } catch (e) {}
+  }
+  async function triggerInstall() {
+    if (installPromptEvent) { installPromptEvent.prompt(); await installPromptEvent.userChoice; setInstallPromptEvent(null); }
+    dismissInstallCard();
+  }
+
+  function creditGate() {
+    const c = computeCredits(profile);
+    if (c.credits < 1) { setError(`You're out of consultations for now — the next one unlocks in about ${formatWait(c.hoursUntilNext)}.`); return false; }
+    return true;
+  }
+  async function consumeCredit() {
+    const c = computeCredits(profile);
+    const updated = { ...profile, credits: Math.max(0, c.credits - 1), lastCreditRefillAt: c.lastCreditRefillAt };
+    setProfile(updated);
+    try { await window.storage.set("ifatarot:profile", JSON.stringify(updated)); } catch (e) {}
+  }
+  async function recordVesselInsight(ins) {
+    if (!ins) return;
+    setProfile((prev) => {
+      const updated = { ...prev };
+      if (ins.kind === "known") {
+        updated.vesselInsights = { ...prev.vesselInsights, [ins.area]: { text: ins.text, date: new Date().toISOString() } };
+      } else if (ins.kind === "power") {
+        updated.vesselPowers = { ...prev.vesselPowers, [ins.area]: { name: ins.name, guidance: ins.guidance, date: new Date().toISOString() } };
+      }
+      window.storage && window.storage.set("ifatarot:profile", JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }
+
+  async function loadNotes() { const raw = await safeGet("ifatarot:notes-list"); setNotesList(raw ? JSON.parse(raw) : []); }
+  async function loadEvents() { const raw = await safeGet("ifatarot:events"); setEvents(raw ? JSON.parse(raw) : []); }
+  async function loadDimensionNotes(key) { const raw = await safeGet("ifatarot:notes-list"); const list = raw ? JSON.parse(raw) : []; setDimensionNotes(list.filter((n) => n.dimKey === key)); }
+
+  function go(key) {
+    if (key === "library-root") { setLibraryTradition(null); setScreen("library"); }
+    else if (key === "notes") { setActiveNote(null); loadNotes(); setScreen("notes"); }
+    else setScreen(key);
+  }
+
+  function beginClicked() {
+    if (onboarded) setScreen("begin");
+    else { setDraftProfile(emptyProfile); setObStep(0); setScreen("onboarding"); }
+  }
+  async function finishOnboarding() {
+    const derived = withDerived(draftProfile);
+    setProfile(derived); setDraftProfile(derived); setOnboarded(true);
+    try { await window.storage.set("ifatarot:profile", JSON.stringify(derived)); } catch (e) {}
+    setScreen("begin");
+  }
+  async function saveSettings() {
+    const derived = withDerived(draftProfile);
+    setProfile(derived); setDraftProfile(derived);
+    try { await window.storage.set("ifatarot:profile", JSON.stringify(derived)); } catch (e) {}
+    setScreen("home");
+  }
+
+  function startDimension(key, prefillQuestion) {
+    const dimCfg = DIMENSIONS[key];
+    setDimKey(key); setAssignment({}); setQuestion(prefillQuestion || ""); setResolved(null); setReading(""); setError(null); setResidentMsg(""); setViaResident(false); setAttachNoteId(null);
+    loadDimensionNotes(key);
+    if (dimCfg.modes.length === 1) { setMode(dimCfg.modes[0]); setScreen("dim-tradition"); }
+    else { setMode(null); setScreen("dim-mode"); }
+  }
+  function resumeResident() {
+    if (!profile.residentDimension) return;
+    const { dimKey: rk, modeKey, assignment: ra } = profile.residentDimension;
+    const dc = DIMENSIONS[rk]; const m = dc.modes.find((mm) => mm.key === modeKey);
+    setDimKey(rk); setMode(m); setAssignment(ra); setQuestion(""); setResolved(null); setReading(""); setError(null); setResidentMsg(""); setViaResident(true); setAttachNoteId(null);
+    loadDimensionNotes(rk);
+    setScreen("dim-question");
+  }
+  function quickDraw() {
+    if (!profile.residentDimension) return;
+    if (!question.trim()) { setError("Enter or record your question first."); return; }
+    const { dimKey: rk, modeKey, assignment: ra } = profile.residentDimension;
+    const dc = DIMENSIONS[rk]; const m = dc.modes.find((mm) => mm.key === modeKey);
+    setDimKey(rk); setMode(m); setAssignment(ra); setResolved(null); setReading(""); setError(null); setResidentMsg(""); setViaResident(true); setAttachNoteId(null);
+    loadDimensionNotes(rk);
+    setScreen("dim-shuffling");
+  }
+
+  function traditionsForPosition(posKey) {
+    if (mode.traditionMode === "single") return [assignment.__single];
+    if (mode.traditionMode === "perPosition") { const v = assignment[posKey]; return v === "both" ? ["ifa", "tarot"] : [v]; }
+    if (mode.traditionMode === "perGroup") { const group = mode.groups.find((g) => g.positionKeys.includes(posKey)); return [assignment[group.key]]; }
+    return ["tarot"];
+  }
+  function assignmentComplete() {
+    if (!mode) return false;
+    if (mode.traditionMode === "single") return !!assignment.__single;
+    if (mode.traditionMode === "perPosition") return mode.positions.every((p) => assignment[p.key]);
+    if (mode.traditionMode === "perGroup") return mode.groups.every((g) => assignment[g.key]);
+    return false;
+  }
+
+  function toggleMic() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setError("Voice input isn't available in this browser. Type instead."); return; }
+    if (listening) { recogRef.current && recogRef.current.stop(); return; }
+    baseQuestionRef.current = question;
+    const recog = new SR();
+    recog.lang = "en-US"; recog.interimResults = true; recog.continuous = true;
+    recog.onresult = (e) => {
+      let transcript = "";
+      for (let i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript;
+      const base = baseQuestionRef.current;
+      setQuestion(base ? base + " " + transcript : transcript);
+    };
+    recog.onend = () => { setListening(false); if (timerRef.current) clearInterval(timerRef.current); };
+    recog.onerror = (e) => {
+      setListening(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+      setError(e.error === "not-allowed" || e.error === "service-not-allowed"
+        ? "Microphone access was blocked. If you're testing inside a preview iframe, voice input needs to run on your own hosted domain to get a real permission prompt."
+        : `Voice input stopped (${e.error}). Try again or type instead.`);
+    };
+    recogRef.current = recog;
+    setRecordSeconds(0);
+    setListening(true);
+    timerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
+    recog.start();
+  }
+
+  function beginShuffle() {
+    if (!question.trim()) { setError("Enter or record your question first."); return; }
+    setError(null); setScreen("dim-shuffling");
+  }
+
+  async function drawAndReveal() {
+    if (!creditGate()) { setScreen("dim-question"); return; }
+    setLoading(true);
+    const positions = mode.positions.map((p) => {
+      const traditions = traditionsForPosition(p.key);
+      const cards = traditions.map((t) => drawCard(t, t === "tarot" ? profile.tarotReversals : profile.ifaReversalsExperimental));
+      return { ...p, cards };
+    });
+    setResolved(positions);
+    setReading("");
+    setScreen("dim-reading");
+    try {
+      const system = buildSystemPrompt(profile);
+      const user = buildMultiPrompt(dimKey, mode.key, DIMENSIONS[dimKey].label, mode.title, positions, question);
+      let text = await streamAgentMessages(system, [{ role: "user", content: user }], (partial) => setReading(partial));
+      if (!text || !text.trim()) text = await callAgent(system, user); // one quiet retry before giving up
+      if (!text || !text.trim()) {
+        setError("Your strategist didn't come back with a reading that time — no consultation was used. Try drawing again.");
+        setScreen("dim-question");
+        return;
+      }
+      setReading(text);
+      setNoteTitle(question);
+      pushEvent("reading", { dimension: dimKey, mode: mode.key, traditions: positions.flatMap((p) => p.cards.map((c) => c.tradition)) });
+      await consumeCredit();
+      extractVesselInsight(`Question: "${question}"\nReading given: ${text}`).then((ins) => { if (ins) recordVesselInsight(ins); });
+      if (attachNoteId) await appendReadingToNote(attachNoteId, { dimKey, modeLabel: mode.title, question, positions, reading: text });
+    } catch (e) {
+      setError(e && e.message && e.message.includes("consultation") ? e.message : "The reading could not be generated. Check your connection and try again — no consultation was used.");
+      setScreen("dim-question");
+    } finally { setLoading(false); }
+  }
+
+  function openCardFromResult(card) { setCardDetail(card); setCardDetailBack("dim-reading"); setScreen("card-detail"); }
+  function openCardFromLibrary(tradition, name) { setCardDetail({ tradition, name, reversed: false }); setCardDetailBack("library-grid"); setScreen("card-detail"); }
+
+  async function sendStrategistMessage(overrideText) {
+    const q = (overrideText || strategistInput).trim();
+    if (!q) return;
+    if (!creditGate()) return;
+    const nextLog = [...strategistLog, { role: "user", text: q }];
+    setStrategistLog(nextLog); setStrategistInput(""); setStrategistLoading(true); setStrategistSuggestion(null);
+    try {
+      const system = buildSystemPrompt(profile) + "\n\nThis is a live back-and-forth conversation before any cards are drawn. Build on everything said so far, ask a clarifying question if it would sharpen the question, and work toward a clear synthesis of what's really being asked. Only speak to their question and Ifatarot — no generic advice.";
+      const apiMessages = nextLog.map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
+      let answer = await streamAgentMessages(system, apiMessages, (partial) => {
+        setStrategistLog([...nextLog, { role: "agent", text: partial }]);
+      });
+      if (!answer || !answer.trim()) answer = await callAgentMessages(system, apiMessages); // one quiet retry
+      if (!answer || !answer.trim()) {
+        setStrategistLog([...nextLog, { role: "agent", text: "That didn't come through clearly — no consultation was used. Try sending it again." }]);
+        setStrategistLoading(false);
+        return;
+      }
+      const updatedLog = [...nextLog, { role: "agent", text: answer }];
+      setStrategistLog(updatedLog);
+      await consumeCredit();
+      extractVesselInsight(`Seeker said: "${q}"\nStrategist replied: ${answer}`).then((ins) => { if (ins) recordVesselInsight(ins); });
+      const suggestSystem = "Given a seeker's question for a Tarot and Ifa divination app, pick the single best reading depth from this list and reply with ONLY the key, nothing else: 1D (a quick single focus), 2D (weighing two sides), 3D (a timeline or core-plus-forces view), 7D (a deep multi-angle spread), 9D (the most exhaustive spread).";
+      const dimGuess = (await callAgent(suggestSystem, q, { internal: true })).trim();
+      const match = Object.keys(DIMENSIONS).find((k) => dimGuess.includes(k)) || "1D";
+      setStrategistSuggestion({ dimKey: match, question: q });
+      pushEvent("strategist", { dimension: match });
+    } catch (e) {
+      setStrategistLog([...nextLog, { role: "agent", text: e && e.message && e.message.includes("consultation") ? e.message : "Something went wrong reaching your strategist. Try again in a moment." }]);
+    } finally { setStrategistLoading(false); }
+  }
+
+  async function saveNote() {
+    if (!resolved || !reading) return;
+    const entry = {
+      id: Date.now(), title: noteTitle || question || `${dimKey} · ${mode.title}`, date: new Date().toISOString(),
+      dimKey, modeLabel: mode.title,
+      entries: [{ type: "reading", dimKey, modeLabel: mode.title, question, positions: resolved, reading, date: new Date().toISOString() }],
+    };
+    const raw = await safeGet("ifatarot:notes-list");
+    const list = raw ? JSON.parse(raw) : [];
+    list.unshift(entry);
+    try { await window.storage.set("ifatarot:notes-list", JSON.stringify(list.slice(0, 100))); } catch (e) {}
+    pushEvent("note", { dimension: dimKey });
+    setNoteTitle("");
+    go("notes");
+  }
+  function normalizeNote(n) {
+    if (n.entries) return n;
+    return { ...n, entries: [{ type: "reading", dimKey: n.dimKey, modeLabel: n.modeLabel, question: n.question, positions: n.positions, reading: n.reading, date: n.date }] };
+  }
+  async function appendReadingToNote(noteId, readingData) {
+    const raw = await safeGet("ifatarot:notes-list");
+    const list = raw ? JSON.parse(raw) : [];
+    const idx = list.findIndex((n) => n.id === noteId);
+    if (idx === -1) return;
+    const note = normalizeNote(list[idx]);
+    note.entries = [...note.entries, { type: "reading", ...readingData, date: new Date().toISOString() }];
+    list[idx] = note;
+    try { await window.storage.set("ifatarot:notes-list", JSON.stringify(list)); } catch (e) {}
+    setActiveNote(note);
+  }
+  async function appendChatToNote(noteId, userText, agentText) {
+    const raw = await safeGet("ifatarot:notes-list");
+    const list = raw ? JSON.parse(raw) : [];
+    const idx = list.findIndex((n) => n.id === noteId);
+    if (idx === -1) return null;
+    const note = normalizeNote(list[idx]);
+    note.entries = [...note.entries, { type: "chat", role: "user", text: userText, date: new Date().toISOString() }, { type: "chat", role: "agent", text: agentText, date: new Date().toISOString() }];
+    list[idx] = note;
+    try { await window.storage.set("ifatarot:notes-list", JSON.stringify(list)); } catch (e) {}
+    return note;
+  }
+  async function sendNoteChatMessage(note) {
+    const q = noteChatInput.trim();
+    if (!q || !creditGate()) return;
+    setNoteChatLoading(true); setNoteChatInput("");
+    const normalized = normalizeNote(note);
+    const historyMessages = normalized.entries.map((e) => {
+      if (e.type === "chat") return { role: e.role === "user" ? "user" : "assistant", content: e.text };
+      return { role: "assistant", content: `(Earlier reading — ${e.modeLabel}, question: "${e.question}") ${e.reading}` };
+    });
+    historyMessages.push({ role: "user", content: q });
+    try {
+      const system = buildSystemPrompt(profile) + "\n\nYou're continuing a saved conversation thread with the seeker, picking up from the reading(s) already in it. Stay grounded in what's already been discussed.";
+      const answer = await callAgentMessages(system, historyMessages);
+      if (!answer || !answer.trim()) {
+        setError("That didn't come through clearly — no consultation was used. Try again.");
+        return;
+      }
+      const updated = await appendChatToNote(note.id, q, answer);
+      if (updated) setActiveNote(updated);
+      await consumeCredit();
+      extractVesselInsight(`Seeker said: "${q}"\nStrategist replied: ${answer}`).then((ins) => { if (ins) recordVesselInsight(ins); });
+    } catch (e) {
+      setError(e && e.message && e.message.includes("consultation") ? e.message : "Couldn't reach your strategist. Try again — no consultation was used.");
+    } finally { setNoteChatLoading(false); }
+  }
+  function drawAnotherForNote(note) {
+    startDimension("1D");
+    setAttachNoteId(note.id);
+  }
+  async function makeResident() {
+    const updated = { ...profile, residentDimension: { dimKey, modeKey: mode.key, assignment } };
+    setProfile(updated); setDraftProfile(updated);
+    try { await window.storage.set("ifatarot:profile", JSON.stringify(updated)); } catch (e) {}
+    setResidentMsg(`${mode.title} is now where you reside. Look for "Draw" on your home screen.`);
+  }
+
+  const wrap = { maxWidth: 460, margin: "0 auto", minHeight: 600, background: INK, color: IVORY, fontFamily: "Karla, sans-serif", padding: "36px 24px 28px", borderRadius: 16, boxSizing: "border-box" };
+  const dimCfg = dimKey ? DIMENSIONS[dimKey] : null;
+
+  function DimensionSidebar() {
+    if (dimensionNotes.length === 0) return null;
+    return (
+      <div style={{ width: 100, flexShrink: 0 }}>
+        <div style={{ fontSize: 10, color: SAGE, marginBottom: 6 }}>Past in {dimKey}</div>
+        {dimensionNotes.slice(0, 6).map((n) => (
+          <button key={n.id} onClick={() => { setActiveNote(n); go("notes"); }} style={{ display: "block", width: "100%", textAlign: "left", background: "rgba(243,234,216,0.05)", border: `1px solid ${HAIRLINE}`, borderRadius: 6, padding: 6, marginBottom: 6, cursor: "pointer" }}>
+            <div style={{ fontSize: 10, color: GOLD, fontFamily: "Fraunces, serif" }}>{n.title.length > 14 ? n.title.slice(0, 13) + "…" : n.title}</div>
+            <div style={{ fontSize: 9, color: SAGE }}>{new Date(n.date).toLocaleDateString()}</div>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: INDIGO, padding: "24px 12px", borderRadius: 20 }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;500;600&family=Karla:wght@400;500;600;700&display=swap');
+        @keyframes shuffleMove { 0% { transform: translateX(-46px) rotate(-10deg); } 50% { transform: translateX(46px) rotate(10deg); } 100% { transform: translateX(-46px) rotate(-10deg); } }
+        @keyframes micPulse { 0% { box-shadow: 0 0 0 0 rgba(196,101,46,0.5); } 70% { box-shadow: 0 0 0 12px rgba(196,101,46,0); } 100% { box-shadow: 0 0 0 0 rgba(196,101,46,0); } }
+      `}</style>
+      <div style={wrap}>
+
+        {screen === "home" && (
+          <div>
+            {showInstallCard && (
+              <div style={{ border: `1px solid ${GOLD}`, borderRadius: 10, padding: 14, marginBottom: 20, background: "rgba(217,169,74,0.07)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <div style={{ fontSize: 13, color: IVORY, lineHeight: 1.5 }}>
+                    <strong style={{ color: GOLD }}>Add Ifatarot to your home screen</strong> for real-time answers, one tap away — no browser bar, no searching for the tab.
+                    {isIOS ? " Tap the Share icon below, then \"Add to Home Screen.\"" : installPromptEvent ? "" : " Look for \"Add to Home screen\" or \"Install app\" in your browser's menu."}
+                  </div>
+                  <button onClick={dismissInstallCard} style={{ background: "none", border: "none", color: SAGE, fontSize: 16, cursor: "pointer", padding: 0, lineHeight: 1 }}>&times;</button>
+                </div>
+                {!isIOS && installPromptEvent && <PrimaryButton style={{ marginTop: 12 }} onClick={triggerInstall}>Install Ifatarot</PrimaryButton>}
+              </div>
+            )}
+            <div style={{ textAlign: "center", marginBottom: 32, marginTop: 4 }}>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: -6 }}><StarSelector decorative value={null} onChange={() => {}} size={110} /></div>
+              <div style={{ fontFamily: "Fraunces, serif", fontSize: 28, color: GOLD }}>Ifatarot</div>
+              <div style={{ fontSize: 13, color: SAGE, marginTop: 4 }}>Two traditions. One clear answer.</div>
+              {onboarded && <div style={{ fontSize: 11, color: SAGE, marginTop: 10 }}>{computeCredits(profile).credits}/{CREDIT_MAX} consultations available</div>}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {profile.residentDimension && (
+                <div style={{ border: `1px solid ${HAIRLINE}`, borderRadius: 10, padding: 14, background: "rgba(217,169,74,0.04)" }}>
+                  <div style={{ fontSize: 11, color: SAGE, marginBottom: 8 }}>Quick ask &middot; {DIMENSIONS[profile.residentDimension.dimKey].modes.find((m) => m.key === profile.residentDimension.modeKey)?.title}</div>
+                  <textarea value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="What's on your mind?" style={{ width: "100%", minHeight: 64, boxSizing: "border-box", background: "rgba(243,234,216,0.05)", border: `1px solid ${HAIRLINE}`, borderRadius: 6, padding: 10, color: IVORY, fontSize: 14, fontFamily: "Karla, sans-serif", resize: "vertical", outline: "none", marginBottom: 8 }} />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={toggleMic} style={{ width: 44, borderRadius: 8, border: `1px solid ${listening ? CAMWOOD : HAIRLINE}`, background: listening ? "rgba(196,101,46,0.15)" : "transparent", color: listening ? GOLD : IVORY, cursor: "pointer", animation: listening ? "micPulse 1.4s infinite" : "none" }}>&#127908;</button>
+                    <PrimaryButton style={{ flex: 1 }} onClick={quickDraw}>Shuffle now</PrimaryButton>
+                  </div>
+                  {error && <p style={{ color: CAMWOOD, fontSize: 12, marginTop: 8 }}>{error}</p>}
+                  <button onClick={resumeResident} style={{ background: "none", border: "none", color: SAGE, fontSize: 11, marginTop: 8, cursor: "pointer", textDecoration: "underline" }}>Change tradition or settings for this reading</button>
+                </div>
+              )}
+              <PrimaryButton onClick={beginClicked}>Begin</PrimaryButton>
+              <GhostButton onClick={() => go("library-root")}>Library</GhostButton>
+              <GhostButton onClick={() => go("notes")}>Notes</GhostButton>
+              {onboarded && <GhostButton onClick={() => setScreen("vessel")}>The Vessel</GhostButton>}
+              <GhostButton onClick={() => { setDraftProfile(profile); setScreen("settings"); }}>Settings</GhostButton>
+            </div>
+            <BottomNav screen="home" go={go} />
+          </div>
+        )}
+
+        {screen === "onboarding" && (
+          <div>
+            <Header title="Set your blueprint" />
+            {obStep === 0 && (
+              <div>
+                <p style={{ color: SAGE, fontSize: 14, lineHeight: 1.6, marginBottom: 20 }}>Which plane do you operate from most, right now?</p>
+                <StarSelector value={draftProfile.plane} onChange={(v) => setDraftProfile({ ...draftProfile, plane: v })} />
+                <PrimaryButton style={{ marginTop: 24 }} disabled={!draftProfile.plane} onClick={() => setObStep(1)}>Continue</PrimaryButton>
+              </div>
+            )}
+            {obStep === 1 && (
+              <div>
+                <p style={{ color: SAGE, fontSize: 13, marginBottom: 12 }}>Your own orientation</p>
+                <StarSelector value={draftProfile.element} onChange={(v) => setDraftProfile({ ...draftProfile, element: v })} size={220} />
+                <p style={{ color: SAGE, fontSize: 13, margin: "20px 0 12px" }}>What should your cosmic strategist focus on?</p>
+                <StarSelector value={draftProfile.agentElement} onChange={(v) => setDraftProfile({ ...draftProfile, agentElement: v })} size={220} />
+                <PrimaryButton style={{ marginTop: 12 }} disabled={!draftProfile.element || !draftProfile.agentElement} onClick={() => setObStep(2)}>Continue</PrimaryButton>
+              </div>
+            )}
+            {obStep === 2 && (
+              <div>
+                <Field label="What should Ifatarot call you?"><TextInput placeholder="Your name" value={draftProfile.name} onChange={(e) => setDraftProfile({ ...draftProfile, name: e.target.value })} /></Field>
+                <Field label="What would you like to call your agent?"><TextInput placeholder="Agent name" value={draftProfile.agentName} onChange={(e) => setDraftProfile({ ...draftProfile, agentName: e.target.value })} /></Field>
+                <PrimaryButton disabled={!draftProfile.name || !draftProfile.agentName} onClick={() => setObStep(3)}>Continue</PrimaryButton>
+              </div>
+            )}
+            {obStep === 3 && (
+              <div>
+                <p style={{ color: SAGE, fontSize: 13, lineHeight: 1.6, marginBottom: 20 }}>Optional — this also unlocks your numerology, life path, and Chinese zodiac. Skip and add later in Settings if you'd rather not share it yet.</p>
+                <Field label="Date of birth"><TextInput type="date" value={draftProfile.dob} onChange={(e) => setDraftProfile({ ...draftProfile, dob: e.target.value })} /></Field>
+                <Field label="Time of birth"><TextInput type="time" value={draftProfile.tob} onChange={(e) => setDraftProfile({ ...draftProfile, tob: e.target.value })} /></Field>
+                <Field label="Place of birth"><TextInput placeholder="City, country" value={draftProfile.pob} onChange={(e) => setDraftProfile({ ...draftProfile, pob: e.target.value })} /></Field>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <GhostButton style={{ flex: 1 }} onClick={() => setObStep(4)}>Skip for now</GhostButton>
+                  <PrimaryButton style={{ flex: 1 }} onClick={() => setObStep(4)}>Continue</PrimaryButton>
+                </div>
+              </div>
+            )}
+            {obStep === 4 && (
+              <div>
+                <p style={{ color: SAGE, fontSize: 13, lineHeight: 1.6, marginBottom: 16 }}>You can fine-tune exactly how your strategist speaks any time in Settings.</p>
+                <PrimaryButton onClick={finishOnboarding}>Enter Ifatarot</PrimaryButton>
+              </div>
+            )}
+          </div>
+        )}
+
+        {screen === "begin" && (
+          <div>
+            <Header title="Choose your depth" onBack={() => go("home")} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {Object.keys(DIMENSIONS).map((k) => <GhostButton key={k} onClick={() => startDimension(k)}>{DIMENSIONS[k].label}</GhostButton>)}
+            </div>
+            <BottomNav screen="begin" go={go} />
+          </div>
+        )}
+
+        {screen === "dim-mode" && dimCfg && (
+          <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Header title={dimCfg.label} onBack={() => setScreen("begin")} />
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {dimCfg.modes.map((m) => (
+                  <button key={m.key} onClick={() => { setMode(m); setScreen("dim-tradition"); }} style={{ textAlign: "left", background: "rgba(243,234,216,0.03)", border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: 14, cursor: "pointer" }}>
+                    <div style={{ fontFamily: "Fraunces, serif", color: GOLD, fontSize: 16 }}>{m.title}</div>
+                    <div style={{ fontSize: 12, color: SAGE, marginTop: 2 }}>{m.label}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <DimensionSidebar />
+          </div>
+        )}
+
+        {screen === "dim-tradition" && dimCfg && mode && (
+          <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Header title={mode.title} onBack={() => setScreen(dimCfg.modes.length > 1 ? "dim-mode" : "begin")} />
+              {mode.traditionMode === "single" && (
+                <Field label="Which tradition should draw for you?"><div style={{ display: "flex", gap: 10 }}><PillButton active={assignment.__single === "ifa"} onClick={() => setAssignment({ __single: "ifa" })}>Ifa</PillButton><PillButton active={assignment.__single === "tarot"} onClick={() => setAssignment({ __single: "tarot" })}>Tarot</PillButton></div></Field>
+              )}
+              {mode.traditionMode === "perPosition" && mode.positions.map((p) => (
+                <Field key={p.key} label={p.label}><div style={{ display: "flex", gap: 8 }}>{["ifa", "tarot", "both"].map((opt) => <PillButton key={opt} active={assignment[p.key] === opt} onClick={() => setAssignment({ ...assignment, [p.key]: opt })}>{opt === "both" ? "Both" : opt === "ifa" ? "Ifa" : "Tarot"}</PillButton>)}</div></Field>
+              ))}
+              {mode.traditionMode === "perGroup" && mode.groups.map((g) => (
+                <Field key={g.key} label={g.label}><div style={{ display: "flex", gap: 8 }}><PillButton active={assignment[g.key] === "ifa"} onClick={() => setAssignment({ ...assignment, [g.key]: "ifa" })}>Ifa</PillButton><PillButton active={assignment[g.key] === "tarot"} onClick={() => setAssignment({ ...assignment, [g.key]: "tarot" })}>Tarot</PillButton></div></Field>
+              ))}
+              <PrimaryButton disabled={!assignmentComplete()} onClick={() => setScreen("dim-question")}>Continue</PrimaryButton>
+            </div>
+            <DimensionSidebar />
+          </div>
+        )}
+
+        {screen === "dim-question" && (
+          <div>
+            <Header title="Ask your question" onBack={() => (viaResident ? go("home") : setScreen("dim-tradition"))} />
+            <p style={{ fontSize: 11, color: SAGE, marginBottom: 16 }}>{computeCredits(profile).credits} consultation{computeCredits(profile).credits === 1 ? "" : "s"} available right now</p>
+            <Field label="Speak or type what's on your mind">
+              <textarea value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="What do I need to understand about this decision?" style={{ width: "100%", minHeight: 110, boxSizing: "border-box", background: "rgba(243,234,216,0.05)", border: `1px solid ${HAIRLINE}`, borderRadius: 6, padding: 14, color: IVORY, fontSize: 15, fontFamily: "Karla, sans-serif", resize: "vertical", outline: "none" }} />
+            </Field>
+            <button onClick={toggleMic} style={{ width: "100%", boxSizing: "border-box", marginBottom: 8, padding: 12, borderRadius: 8, border: `1px solid ${listening ? CAMWOOD : HAIRLINE}`, background: listening ? "rgba(196,101,46,0.15)" : "transparent", color: listening ? GOLD : IVORY, fontFamily: "Karla, sans-serif", cursor: "pointer", animation: listening ? "micPulse 1.4s infinite" : "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: listening ? CAMWOOD : SAGE, display: "inline-block" }} />
+              {listening ? `Recording ${String(Math.floor(recordSeconds / 60)).padStart(1, "0")}:${String(recordSeconds % 60).padStart(2, "0")} — tap to stop` : "Tap to speak"}
+            </button>
+            {listening && <p style={{ fontSize: 12, color: SAGE, marginTop: 0, marginBottom: 24 }}>Transcribing live above as you talk — check the text box.</p>}
+            {!listening && <div style={{ marginBottom: 24 }} />}
+            {error && <p style={{ color: CAMWOOD, fontSize: 13, marginBottom: 16 }}>{error}</p>}
+            <PrimaryButton onClick={beginShuffle}>Begin shuffling</PrimaryButton>
+          </div>
+        )}
+
+        {screen === "dim-shuffling" && (
+          <div>
+            <Header title={loading ? "Consulting" : "Shuffling"} onBack={() => !loading && setScreen("dim-question")} />
+            {!loading ? (
+              <div>
+                <div style={{ position: "relative", height: 180, marginBottom: 28 }}>
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <div key={i} style={{ position: "absolute", left: "calc(50% - 30px)", top: 20, width: 60, height: 90, borderRadius: 6, background: INDIGO, border: `2px solid ${GOLD}`, animation: "shuffleMove 1.3s ease-in-out infinite", animationDelay: `${i * 0.11}s`, boxShadow: "0 4px 12px rgba(0,0,0,0.4)" }} />
+                  ))}
+                </div>
+                <p style={{ textAlign: "center", color: SAGE, fontSize: 13, marginBottom: 20 }}>Let it run as long as feels right.</p>
+                <PrimaryButton onClick={drawAndReveal}>Stop shuffling</PrimaryButton>
+              </div>
+            ) : (
+              <p style={{ textAlign: "center", color: SAGE, fontSize: 14, marginTop: 60 }}>{profile.agentName || "Your strategist"} is reading what came up...</p>
+            )}
+            {error && <p style={{ color: CAMWOOD, fontSize: 13, marginTop: 16 }}>{error}</p>}
+          </div>
+        )}
+
+        {screen === "dim-reading" && resolved && dimKey !== "2D" && (
+          <div>
+            <Header title="Your reading" onBack={() => go("begin")} />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
+              {resolved.map((p) => p.cards.map((c, i) => (
+                <button key={p.key + i} onClick={() => openCardFromResult(c)} style={{ background: "rgba(217,169,74,0.05)", border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: 8, cursor: "pointer", textAlign: "left", width: 96 }}>
+                  <CardArt tradition={c.tradition} name={c.name} size={80} />
+                  <div style={{ fontSize: 10, color: SAGE, marginTop: 4 }}>{p.label}{c.reversed ? " · rev." : ""}</div>
+                </button>
+              )))}
+            </div>
+            {loading && !reading && <p style={{ fontSize: 13, color: SAGE, fontStyle: "italic" }}>{profile.agentName || "Your strategist"} is reading what came up...</p>}
+            <p style={{ fontSize: 15, lineHeight: 1.8, color: IVORY, whiteSpace: "pre-wrap" }}>{reading}{loading && reading && <span style={{ opacity: 0.5 }}>▍</span>}</p>
+            {!loading && <div style={{ marginTop: 8, fontSize: 13, color: SAGE }}>&mdash; {profile.agentName || "your agent"}</div>}
+            {!loading && attachNoteId ? (
+              <PrimaryButton style={{ marginTop: 20 }} onClick={() => { setAttachNoteId(null); go("notes"); setActiveNote(null); loadNotes(); }}>Back to your note</PrimaryButton>
+            ) : !loading && (
+              <div>
+                <Field label="Save this reading to Notes (optional)"><TextInput placeholder="Name this note" value={noteTitle} onChange={(e) => setNoteTitle(e.target.value)} /></Field>
+                <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+                  <GhostButton style={{ flex: 1 }} onClick={saveNote}>Save to notes</GhostButton>
+                  <GhostButton style={{ flex: 1 }} onClick={() => go("home")}>Home</GhostButton>
+                </div>
+                <GhostButton style={{ width: "100%", boxSizing: "border-box" }} onClick={makeResident}>Make this your resident dimension</GhostButton>
+                {residentMsg && <p style={{ fontSize: 12, color: GOLD, marginTop: 10 }}>{residentMsg}</p>}
+              </div>
+            )}
+          </div>
+        )}
+
+        {screen === "dim-reading" && resolved && dimKey === "2D" && (() => {
+          const isDuality = mode.key === "duality";
+          const left = resolved.find((p) => p.key === (isDuality ? "disagreeable" : "physical"));
+          const right = resolved.find((p) => p.key === (isDuality ? "agreeable" : "spiritual"));
+          return (
+            <div>
+              <Header title="Your reading" onBack={() => go("begin")} />
+              <div style={{ display: "flex", flexDirection: isDuality ? "row" : "column", borderRadius: 10, overflow: "hidden", marginBottom: 20, border: `1px solid ${HAIRLINE}` }}>
+                <div onClick={() => openCardFromResult(right.cards[0])} style={{ flex: 1, background: isDuality ? IVORY : GREEN, color: isDuality ? INK : IVORY, padding: 20, textAlign: "center", cursor: "pointer" }}>
+                  <div style={{ fontSize: 12, letterSpacing: 1, marginBottom: 10, opacity: 0.8 }}>{right.label.toUpperCase()}</div>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}><CardArt tradition={right.cards[0].tradition} name={right.cards[0].name} size={70} /></div>
+                  <div style={{ fontSize: 12 }}>{right.cards[0].reversed ? "Reversed" : ""}</div>
+                </div>
+                <div onClick={() => openCardFromResult(left.cards[0])} style={{ flex: 1, background: isDuality ? INK : RED, color: IVORY, padding: 20, textAlign: "center", cursor: "pointer" }}>
+                  <div style={{ fontSize: 12, letterSpacing: 1, marginBottom: 10, opacity: 0.8 }}>{left.label.toUpperCase()}</div>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}><CardArt tradition={left.cards[0].tradition} name={left.cards[0].name} size={70} /></div>
+                  <div style={{ fontSize: 12 }}>{left.cards[0].reversed ? "Reversed" : ""}</div>
+                </div>
+              </div>
+              <p style={{ fontSize: 15, lineHeight: 1.8, color: IVORY, whiteSpace: "pre-wrap" }}>{reading}{loading && reading && <span style={{ opacity: 0.5 }}>▍</span>}</p>
+              {!loading && <div style={{ marginTop: 8, fontSize: 13, color: SAGE }}>&mdash; {profile.agentName || "your agent"}</div>}
+              {!loading && attachNoteId ? (
+                <PrimaryButton style={{ marginTop: 20 }} onClick={() => { setAttachNoteId(null); go("notes"); setActiveNote(null); loadNotes(); }}>Back to your note</PrimaryButton>
+              ) : !loading && (
+                <div>
+                  <Field label="Save this reading to Notes (optional)"><TextInput placeholder="Name this note" value={noteTitle} onChange={(e) => setNoteTitle(e.target.value)} /></Field>
+                  <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+                    <GhostButton style={{ flex: 1 }} onClick={saveNote}>Save to notes</GhostButton>
+                    <GhostButton style={{ flex: 1 }} onClick={() => go("home")}>Home</GhostButton>
+                  </div>
+                  <GhostButton style={{ width: "100%", boxSizing: "border-box" }} onClick={makeResident}>Make this your resident dimension</GhostButton>
+                  {residentMsg && <p style={{ fontSize: 12, color: GOLD, marginTop: 10 }}>{residentMsg}</p>}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {screen === "card-detail" && cardDetail && (
+          <div>
+            <Header title={cardDetail.tradition === "tarot" ? "Tarot card" : "Odu"} onBack={() => setScreen(cardDetailBack)} />
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}><CardArt tradition={cardDetail.tradition} name={cardDetail.name} size={140} /></div>
+            <div style={{ fontFamily: "Fraunces, serif", fontSize: 20, color: GOLD, textAlign: "center", marginBottom: 16 }}>{cardDetail.name}</div>
+            {cardDetail.tradition === "tarot" ? (
+              <div>
+                <Field label="Upright"><p style={{ fontSize: 14, lineHeight: 1.7 }}>{tarotMeaning(cardDetail.name).upright}</p></Field>
+                <Field label="Reversed"><p style={{ fontSize: 14, lineHeight: 1.7 }}>{tarotMeaning(cardDetail.name).reversed}</p></Field>
+              </div>
+            ) : (
+              <p style={{ fontSize: 14, lineHeight: 1.7, color: SAGE }}>Full teaching for this odu hasn't been added yet — this card is a structural placeholder until verified odu content and artwork are ready.</p>
+            )}
+          </div>
+        )}
+
+        {screen === "vessel" && (
+          <div>
+            <Header title="The Vessel" onBack={() => go("home")} />
+            <p style={{ fontSize: 13, color: SAGE, marginBottom: 20, lineHeight: 1.6 }}>What you carry, and what you're reaching for — gathered quietly through your readings and conversations. Nothing here was asked for directly; it surfaced on its own.</p>
+            <svg viewBox="0 0 300 300" style={{ width: "100%", maxWidth: 220, display: "block", margin: "0 auto 24px" }}>
+              <ellipse cx="150" cy="55" rx="24" ry="28" fill="none" stroke={HAIRLINE} strokeWidth="1.5" />
+              <path d="M122,85 Q150,76 178,85 L188,215 Q150,230 112,215 Z" fill="none" stroke={HAIRLINE} strokeWidth="1.5" />
+              <line x1="120" y1="222" x2="108" y2="288" stroke={HAIRLINE} strokeWidth="1.5" />
+              <line x1="180" y1="222" x2="192" y2="288" stroke={HAIRLINE} strokeWidth="1.5" />
+              {[{ key: "spiritual", y: 30 }, { key: "mental", y: 70 }, { key: "emotional", y: 128 }, { key: "psychological", y: 178 }, { key: "physical", y: 255 }].map((z) => {
+                const known = !!profile.vesselInsights?.[z.key];
+                const power = !!profile.vesselPowers?.[z.key];
+                const stage = known && power ? 2 : (known || power) ? 1 : 0;
+                const r = 9 + stage * 2.5;
+                return (
+                  <g key={z.key}>
+                    {stage > 0 && <circle cx="150" cy={z.y} r={r + 6} fill="none" stroke={GOLD} strokeWidth="1"><animate attributeName="r" values={`${r + 3};${r + 9};${r + 3}`} dur={stage === 2 ? "1.6s" : "2.6s"} repeatCount="indefinite" /><animate attributeName="opacity" values="0.85;0.1;0.85" dur={stage === 2 ? "1.6s" : "2.6s"} repeatCount="indefinite" /></circle>}
+                    <circle cx="150" cy={z.y} r={r} fill={stage === 2 ? "rgba(217,169,74,0.55)" : stage === 1 ? "rgba(217,169,74,0.28)" : "rgba(243,234,216,0.04)"} stroke={stage > 0 ? GOLD : HAIRLINE} strokeWidth={stage > 0 ? 2 : 1} />
+                  </g>
+                );
+              })}
+            </svg>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {ORIENTATIONS.map((z) => {
+                const known = profile.vesselInsights?.[z.key];
+                const power = profile.vesselPowers?.[z.key];
+                const stage = known && power ? "Awakened" : (known || power) ? "Stirring" : "Dormant";
+                return (
+                  <div key={z.key} style={{ border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: 12, opacity: known || power ? 1 : 0.5 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                      <div style={{ fontSize: 12, color: GOLD, fontFamily: "Fraunces, serif" }}>{z.label}</div>
+                      <div style={{ fontSize: 10, color: SAGE, letterSpacing: 0.5 }}>{stage.toUpperCase()}</div>
+                    </div>
+                    {power && <div style={{ marginTop: 8 }}><div style={{ fontSize: 13, color: IVORY, fontWeight: 600 }}>{power.name}</div><div style={{ fontSize: 12, color: SAGE, marginTop: 2 }}>{power.guidance}</div></div>}
+                    {known && <div style={{ fontSize: 12, color: SAGE, marginTop: power ? 8 : 4 }}>{known.text}</div>}
+                    {!known && !power && <div style={{ fontSize: 13, color: SAGE, marginTop: 4 }}>Not discovered yet — comes up naturally through readings and conversation.</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {screen === "library" && (
+          <div>
+            <Header title="Library" onBack={() => go("home")} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <GhostButton onClick={() => { setLibraryTradition("ifa"); setScreen("library-grid"); }}>Ifa &middot; 256 odu</GhostButton>
+              <GhostButton onClick={() => { setLibraryTradition("tarot"); setScreen("library-grid"); }}>Tarot &middot; 78 cards</GhostButton>
+            </div>
+            <BottomNav screen="library-root" go={go} />
+          </div>
+        )}
+
+        {screen === "library-grid" && (
+          <div>
+            <Header title={libraryTradition === "ifa" ? "256 odu" : "78 cards"} onBack={() => setScreen("library")} />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, maxHeight: 520, overflowY: "auto" }}>
+              {(libraryTradition === "ifa" ? ODU_256.map((o) => o.name) : TAROT_DECK).map((name) => (
+                <button key={name} onClick={() => openCardFromLibrary(libraryTradition, name)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}><CardArt tradition={libraryTradition} name={name} size={64} /></button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {screen === "strategist" && (
+          <div>
+            <Header title="Your strategist" onBack={() => go("home")} />
+            <p style={{ fontSize: 11, color: SAGE, marginBottom: 12 }}>{computeCredits(profile).credits} consultation{computeCredits(profile).credits === 1 ? "" : "s"} available right now</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: 360, overflowY: "auto", marginBottom: 16 }}>
+              {strategistLog.length === 0 && <p style={{ color: SAGE, fontSize: 13 }}>Ask {profile.agentName || "your strategist"} anything. Keep talking it through — they'll work with you toward a clear synthesis, then suggest a reading depth if one fits.</p>}
+              {strategistLog.map((m, i) => (
+                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", background: m.role === "user" ? "rgba(217,169,74,0.1)" : "rgba(243,234,216,0.05)", border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: 12 }}>
+                  <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: 0, whiteSpace: "pre-wrap" }}>{m.text}{strategistLoading && i === strategistLog.length - 1 && m.role === "agent" && <span style={{ opacity: 0.5 }}>▍</span>}</p>
+                </div>
+              ))}
+              {strategistLoading && strategistLog[strategistLog.length - 1]?.role !== "agent" && <p style={{ color: SAGE, fontSize: 13 }}>Thinking...</p>}
+            </div>
+            {error && <p style={{ color: CAMWOOD, fontSize: 13, marginBottom: 12 }}>{error}</p>}
+            {strategistSuggestion && (
+              <div style={{ border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: 14, marginBottom: 16, background: "rgba(217,169,74,0.06)" }}>
+                <p style={{ fontSize: 13, color: SAGE, marginBottom: 10 }}>For this, {DIMENSIONS[strategistSuggestion.dimKey].label} looks like the best fit — or keep talking it through above.</p>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <GhostButton style={{ flex: 1 }} onClick={() => startDimension(strategistSuggestion.dimKey, strategistSuggestion.question)}>Let the strategist choose</GhostButton>
+                  <GhostButton style={{ flex: 1 }} onClick={() => { setQuestion(strategistSuggestion.question); go("begin"); }}>Pick my own</GhostButton>
+                </div>
+              </div>
+            )}
+            {strategistLog.length > 1 && <GhostButton style={{ width: "100%", boxSizing: "border-box", marginBottom: 12 }} onClick={() => sendStrategistMessage("Bring this to a clear synthesis now, with your recommendation.")}>Ask for a synthesis</GhostButton>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <TextInput placeholder="Ask a question" value={strategistInput} onChange={(e) => setStrategistInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendStrategistMessage()} />
+              <GhostButton onClick={() => sendStrategistMessage()}>Send</GhostButton>
+            </div>
+            <BottomNav screen="strategist" go={go} />
+          </div>
+        )}
+
+        {screen === "notes" && !activeNote && (
+          <div>
+            <Header title="Notes" onBack={() => go("home")} />
+            {notesList.length === 0 && <p style={{ color: SAGE, fontSize: 14 }}>Readings you save from a reading screen will collect here.</p>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {notesList.map((n) => (
+                <button key={n.id} onClick={() => setActiveNote(n)} style={{ textAlign: "left", background: "none", border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: 14, cursor: "pointer", color: IVORY }}>
+                  <div style={{ fontFamily: "Fraunces, serif", color: GOLD, fontSize: 16, marginBottom: 4 }}>{n.title}</div>
+                  <div style={{ fontSize: 11, color: SAGE }}>{new Date(n.date).toLocaleDateString()} &middot; {n.dimKey} &middot; {n.modeLabel}</div>
+                </button>
+              ))}
+            </div>
+            <BottomNav screen="notes" go={go} />
+          </div>
+        )}
+
+        {screen === "notes" && activeNote && (() => {
+          const note = normalizeNote(activeNote);
+          return (
+            <div>
+              <Header title={note.title} onBack={() => setActiveNote(null)} />
+              <div style={{ fontSize: 12, color: SAGE, marginBottom: 16 }}>{new Date(note.date).toLocaleString()}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20 }}>
+                {note.entries.map((e, i) => e.type === "reading" ? (
+                  <div key={i} style={{ border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: 14 }}>
+                    <div style={{ fontSize: 11, color: SAGE, marginBottom: 8 }}>{e.modeLabel} &middot; {new Date(e.date).toLocaleDateString()}</div>
+                    <div style={{ fontSize: 13, color: SAGE, marginBottom: 10 }}>Question: {e.question}</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                      {e.positions.map((p) => p.cards.map((c, j) => (
+                        <div key={p.key + j} style={{ width: 76 }}><CardArt tradition={c.tradition} name={c.name} size={64} /><div style={{ fontSize: 9, color: SAGE, marginTop: 3 }}>{p.label}</div></div>
+                      )))}
+                    </div>
+                    <p style={{ fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{e.reading}</p>
+                  </div>
+                ) : (
+                  <div key={i} style={{ alignSelf: e.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%", background: e.role === "user" ? "rgba(217,169,74,0.1)" : "rgba(243,234,216,0.05)", border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: 12 }}>
+                    <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: 0, whiteSpace: "pre-wrap" }}>{e.text}</p>
+                  </div>
+                ))}
+                {noteChatLoading && <p style={{ color: SAGE, fontSize: 13 }}>Thinking...</p>}
+              </div>
+              <GhostButton style={{ width: "100%", boxSizing: "border-box", marginBottom: 12 }} onClick={() => drawAnotherForNote(note)}>Draw another reading into this note</GhostButton>
+              <Field label="Continue this conversation">
+                <div style={{ display: "flex", gap: 8 }}>
+                  <TextInput placeholder="Ask a follow-up" value={noteChatInput} onChange={(ev) => setNoteChatInput(ev.target.value)} onKeyDown={(ev) => ev.key === "Enter" && sendNoteChatMessage(note)} />
+                  <GhostButton onClick={() => sendNoteChatMessage(note)}>Send</GhostButton>
+                </div>
+              </Field>
+              {error && <p style={{ color: CAMWOOD, fontSize: 13 }}>{error}</p>}
+            </div>
+          );
+        })()}
+
+        {screen === "settings" && (
+          <div>
+            <Header title="Settings" onBack={() => go("home")} />
+            <Field label="Your name"><TextInput value={draftProfile.name} onChange={(e) => setDraftProfile({ ...draftProfile, name: e.target.value })} /></Field>
+            <Field label="Agent name"><TextInput value={draftProfile.agentName} onChange={(e) => setDraftProfile({ ...draftProfile, agentName: e.target.value })} /></Field>
+            <Field label="Your dominant plane"><StarSelector value={draftProfile.plane} onChange={(v) => setDraftProfile({ ...draftProfile, plane: v })} size={220} /></Field>
+            <Field label="Your own orientation"><StarSelector value={draftProfile.element} onChange={(v) => setDraftProfile({ ...draftProfile, element: v })} size={220} /></Field>
+            <Field label="Agent's orientation"><StarSelector value={draftProfile.agentElement} onChange={(v) => setDraftProfile({ ...draftProfile, agentElement: v })} size={220} /></Field>
+            <Field label="Date of birth"><TextInput type="date" value={draftProfile.dob} onChange={(e) => setDraftProfile({ ...draftProfile, dob: e.target.value })} /></Field>
+            <Field label="Time of birth"><TextInput type="time" value={draftProfile.tob} onChange={(e) => setDraftProfile({ ...draftProfile, tob: e.target.value })} /></Field>
+            <Field label="Place of birth"><TextInput value={draftProfile.pob} onChange={(e) => setDraftProfile({ ...draftProfile, pob: e.target.value })} /></Field>
+
+            {(draftProfile.name || draftProfile.dob) && (
+              <Field label="Your numbers">
+                <div style={{ background: "rgba(217,169,74,0.06)", border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: 14, fontSize: 13 }}>
+                  {draftProfile.name && (() => { const n = computeNameNumerology(draftProfile.name); return (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>{n.letters.map((l, i) => <span key={i} style={{ fontSize: 11, color: SAGE, border: `1px solid ${HAIRLINE}`, borderRadius: 4, padding: "2px 6px" }}>{l.letter}={l.value}</span>)}</div>
+                      <div style={{ color: IVORY }}>Name sum: <span style={{ color: GOLD }}>{n.sum}</span> &rarr; Expression number: <span style={{ color: GOLD }}>{n.reduced}</span></div>
+                    </div>
+                  ); })()}
+                  {draftProfile.dob && <div style={{ color: IVORY, marginBottom: 4 }}>Life path number: <span style={{ color: GOLD }}>{computeLifePath(draftProfile.dob)}</span></div>}
+                  {draftProfile.dob && <div style={{ color: IVORY }}>Chinese zodiac: <span style={{ color: GOLD }}>{computeChineseZodiac(draftProfile.dob)}</span></div>}
+                </div>
+              </Field>
+            )}
+
+            <Field label="Language depth"><div style={{ display: "flex", gap: 8 }}><PillButton active={draftProfile.jargon === "simple"} onClick={() => setDraftProfile({ ...draftProfile, jargon: "simple" })}>Simple, plain-spoken</PillButton><PillButton active={draftProfile.jargon === "esoteric"} onClick={() => setDraftProfile({ ...draftProfile, jargon: "esoteric" })}>Traditional, esoteric</PillButton></div></Field>
+            <Field label="Length"><div style={{ display: "flex", gap: 8 }}><PillButton active={draftProfile.verbosity === "brief"} onClick={() => setDraftProfile({ ...draftProfile, verbosity: "brief" })}>Brief, critical only</PillButton><PillButton active={draftProfile.verbosity === "warm"} onClick={() => setDraftProfile({ ...draftProfile, verbosity: "warm" })}>Fuller, more wordy</PillButton></div></Field>
+            <Field label="Tarot reversals"><PillButton active={draftProfile.tarotReversals} onClick={() => setDraftProfile({ ...draftProfile, tarotReversals: !draftProfile.tarotReversals })}>{draftProfile.tarotReversals ? "On" : "Off"}</PillButton></Field>
+            <Field label="Ifa reversals — experimental, not traditional Ifa practice"><PillButton active={draftProfile.ifaReversalsExperimental} onClick={() => setDraftProfile({ ...draftProfile, ifaReversalsExperimental: !draftProfile.ifaReversalsExperimental })}>{draftProfile.ifaReversalsExperimental ? "On" : "Off"}</PillButton></Field>
+            <Field label="Reading for someone else">
+              <PillButton active={draftProfile.relayMode} onClick={() => setDraftProfile({ ...draftProfile, relayMode: !draftProfile.relayMode })}>{draftProfile.relayMode ? "On — consulting on someone else's behalf" : "Off — reading for myself"}</PillButton>
+              {draftProfile.relayMode && <div style={{ marginTop: 10 }}><TextInput placeholder="Who are you reading for?" value={draftProfile.relayForName} onChange={(e) => setDraftProfile({ ...draftProfile, relayForName: e.target.value })} /></div>}
+            </Field>
+            <PrimaryButton onClick={saveSettings}>Save changes</PrimaryButton>
+            <GhostButton style={{ width: "100%", boxSizing: "border-box", marginTop: 12 }} onClick={() => { loadEvents(); setScreen("stats"); }}>View your statistics</GhostButton>
+            <GhostButton style={{ width: "100%", boxSizing: "border-box", marginTop: 12 }} onClick={() => { setShowInstallCard(true); go("home"); }}>How to add this to your home screen</GhostButton>
+          </div>
+        )}
+
+        {screen === "stats" && <StatsScreen events={events} onBack={() => setScreen("settings")} />}
+
+      </div>
+    </div>
+  );
+}
+
+function StatsScreen({ events, onBack }) {
+  const readings = events.filter((e) => e.type === "reading");
+  const notes = events.filter((e) => e.type === "note");
+  const strategist = events.filter((e) => e.type === "strategist");
+  const byDim = {};
+  readings.forEach((r) => { byDim[r.dimension] = (byDim[r.dimension] || 0) + 1; });
+  let ifaCount = 0, tarotCount = 0;
+  readings.forEach((r) => (r.traditions || []).forEach((t) => (t === "ifa" ? ifaCount++ : tarotCount++)));
+  const days = [];
+  for (let i = 6; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); const key = d.toISOString().slice(0, 10); days.push({ day: d.toLocaleDateString(undefined, { weekday: "short" }), count: readings.filter((r) => r.date.slice(0, 10) === key).length }); }
+  const StatCard = ({ label, value }) => <div style={{ background: "rgba(243,234,216,0.05)", borderRadius: 10, padding: "14px 16px" }}><div style={{ fontSize: 12, color: SAGE, marginBottom: 4 }}>{label}</div><div style={{ fontFamily: "Fraunces, serif", fontSize: 22, color: GOLD }}>{value}</div></div>;
+  return (
+    <div>
+      <Header title="Your statistics" onBack={onBack} />
+      <p style={{ fontSize: 12, color: SAGE, marginBottom: 16 }}>This is your own engagement, tracked on this device.</p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 24 }}>
+        <StatCard label="Readings drawn" value={readings.length} />
+        <StatCard label="Strategist chats" value={strategist.length} />
+        <StatCard label="Saved to notes" value={notes.length} />
+        <StatCard label="Ifa vs Tarot draws" value={`${ifaCount} / ${tarotCount}`} />
+      </div>
+      <Field label="Readings, last 7 days">
+        <div style={{ height: 160 }}><ResponsiveContainer width="100%" height="100%"><BarChart data={days}><CartesianGrid stroke={HAIRLINE} vertical={false} /><XAxis dataKey="day" stroke={SAGE} fontSize={11} /><YAxis stroke={SAGE} fontSize={11} allowDecimals={false} /><Tooltip contentStyle={{ background: INDIGO, border: `1px solid ${HAIRLINE}`, color: IVORY }} /><Bar dataKey="count" fill={GOLD} radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div>
+      </Field>
+      <Field label="Most used depth">
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{Object.keys(DIMENSIONS).map((k) => <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span style={{ color: SAGE }}>{DIMENSIONS[k].label}</span><span style={{ color: IVORY }}>{byDim[k] || 0}</span></div>)}</div>
+      </Field>
+      <p style={{ fontSize: 12, color: SAGE, marginTop: 8 }}>An app-wide engagement dashboard for you as the builder would aggregate this same event data across every user's device on a server — this per-device version is the individual half of that picture.</p>
+    </div>
+  );
+}
