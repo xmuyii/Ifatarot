@@ -205,65 +205,64 @@ Strict boundaries: only speak to the cards or odu actually drawn, the seeker's o
 }
 function buildMultiPrompt(dimKey, modeKey, dimLabel, modeTitle, resolved, question) {
   const lines = resolved.map((p) => `${p.label}: ${p.cards.map((c) => `${c.name}${c.reversed ? " (reversed)" : ""} [${c.tradition === "tarot" ? "Tarot" : "Ifa"}]`).join(" and ")}`);
+  const positionCount = resolved.length;
+  const lengthGuidance = positionCount <= 3
+    ? "Keep the whole reading comfortably concise — this is a short spread, it shouldn't run long."
+    : positionCount <= 7
+    ? "This has several positions — keep each one to about 2 short sentences so the whole reading stays readable and finishes cleanly, not 3-4."
+    : "This has many positions — keep each one to a single tight sentence. Brevity per position matters more than depth here; the synthesis at the end can carry more weight.";
   let extra = "";
   if (dimKey === "2D" && modeKey === "duality") extra = "\n\nThis is a literal light-versus-dark reading: treat the Agreeable side as bright, open, affirming energy, and the Disagreeable side as its dark, resistant counterpart. Let that light/dark contrast actively shape how you interpret both cards, not just their positions.";
   if (dimKey === "2D" && modeKey === "polarity") extra = "\n\nThis is a spiritual-versus-physical reading: the Spiritual position carries a green, higher, sky-facing energy, and the Physical position carries a red, rooted, earth-facing energy. Let that elemental contrast actively shape your interpretation of both cards.";
-  return `This is a ${dimLabel} reading, laid out as "${modeTitle}". Positions and what was drawn:\n${lines.join("\n")}\n\nThe seeker's question: "${question}"${extra}\n\nAddress each position by its label, in order, then close with a short synthesis and one concrete next step.`;
+  return `This is a ${dimLabel} reading, laid out as "${modeTitle}". Positions and what was drawn:\n${lines.join("\n")}\n\nThe seeker's question: "${question}"${extra}\n\nAddress each position by its label, in order, then close with a short synthesis and one concrete next step. ${lengthGuidance}`;
 }
 function getDeviceId() {
   let id = localStorage.getItem("ifatarot:device-id");
   if (!id) { id = "dev-" + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("ifatarot:device-id", id); }
   return id;
 }
-async function callAgentMessages(system, messages, opts) {
+async function callAgentMessagesFull(system, messages, opts) {
+  const maxTokens = (opts && opts.maxTokens) || 1200;
   const res = await fetch("/api/generate", {
     method: "POST", headers: { "Content-Type": "application/json", "X-Device-Id": getDeviceId() },
-    body: JSON.stringify({ max_tokens: 1200, system, messages, internal: !!(opts && opts.internal) }),
+    body: JSON.stringify({ max_tokens: maxTokens, system, messages, internal: !!(opts && opts.internal) }),
   });
   const data = await res.json();
   if (res.status === 429) throw new Error(data.error || "Rate limited");
   if (data.error) throw new Error(data.error);
-  return (data.content || []).map((b) => b.text || "").join("\n").trim();
+  const text = (data.content || []).map((b) => b.text || "").join("\n").trim();
+  return { text, truncated: data.stop_reason === "max_tokens" };
+}
+async function callAgentMessages(system, messages, opts) {
+  const { text } = await callAgentMessagesFull(system, messages, opts);
+  return text;
 }
 async function callAgent(system, user, opts) { return callAgentMessages(system, [{ role: "user", content: user }], opts); }
 
-/* streaming variant — calls onDelta(partialText) as chunks arrive, for perceived speed */
-async function streamAgentMessages(system, messages, onDelta) {
-  const res = await fetch("/api/generate", {
-    method: "POST", headers: { "Content-Type": "application/json", "X-Device-Id": getDeviceId() },
-    body: JSON.stringify({ max_tokens: 1200, system, messages, stream: true }),
-  });
-  if (res.status === 429) { const data = await res.json().catch(() => ({})); throw new Error(data.error || "Rate limited"); }
-  if (!res.body || !res.body.getReader) {
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    const text = (data.content || []).map((b) => b.text || "").join("\n").trim();
-    onDelta(text);
-    return text;
-  }
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let full = "", buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop();
-    for (const line of lines) {
-      if (!line.startsWith("data:")) continue;
-      const jsonStr = line.slice(5).trim();
-      if (!jsonStr || jsonStr === "[DONE]") continue;
-      try {
-        const evt = JSON.parse(jsonStr);
-        if (evt.type === "content_block_delta" && evt.delta && evt.delta.text) {
-          full += evt.delta.text;
-          onDelta(full);
-        }
-      } catch (e) {}
+/* how many tokens a reading needs scales with how many cards it has to address —
+   a 9D spread cut short mid-sentence is the "gets cut off" bug; this fixes the cause */
+function maxTokensForReading(positionCount, verbosity) {
+  const perPosition = verbosity === "brief" ? 150 : 280;
+  return Math.max(1000, Math.min(4096, 500 + positionCount * perPosition));
+}
+
+/* Simulates a live typewriter reveal of text we already have in hand. This gives the
+   same "it's arriving in real time" feel as true streaming, without depending on a
+   real SSE connection surviving every environment this app runs in — that fragility
+   was the actual cause of readings failing outright. */
+function revealProgressively(fullText, onDelta) {
+  return new Promise((resolve) => {
+    if (!fullText) { resolve(); return; }
+    let i = 0;
+    const chunk = Math.max(3, Math.round(fullText.length / 60));
+    function tick() {
+      i += chunk;
+      onDelta(fullText.slice(0, i));
+      if (i < fullText.length) setTimeout(tick, 14);
+      else resolve();
     }
-  }
-  return full.trim();
+    tick();
+  });
 }
 
 /* after a reading or a strategist reply, quietly checks whether something durable
@@ -395,6 +394,7 @@ export default function Ifatarot() {
   const [reading, setReading] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [readingFailed, setReadingFailed] = useState(false);
   const [dimensionNotes, setDimensionNotes] = useState([]);
 
   const [libraryTradition, setLibraryTradition] = useState(null);
@@ -581,6 +581,7 @@ export default function Ifatarot() {
   async function drawAndReveal() {
     if (!creditGate()) { setScreen("dim-question"); return; }
     setLoading(true);
+    setReadingFailed(false);
     const positions = mode.positions.map((p) => {
       const traditions = traditionsForPosition(p.key);
       const cards = traditions.map((t) => drawCard(t, t === "tarot" ? profile.tarotReversals : profile.ifaReversalsExperimental));
@@ -589,16 +590,29 @@ export default function Ifatarot() {
     setResolved(positions);
     setReading("");
     setScreen("dim-reading");
+
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setReading(`Your cards are drawn. ${profile.agentName || "Your strategist"} needs a connection to give tailored guidance, though — reconnect and tap "Try again" below. No consultation was used.`);
+      setReadingFailed(true);
+      setLoading(false);
+      return;
+    }
+
     try {
       const system = buildSystemPrompt(profile);
       const user = buildMultiPrompt(dimKey, mode.key, DIMENSIONS[dimKey].label, mode.title, positions, question);
-      let text = await streamAgentMessages(system, [{ role: "user", content: user }], (partial) => setReading(partial));
-      if (!text || !text.trim()) text = await callAgent(system, user); // one quiet retry before giving up
+      const cardCount = positions.flatMap((p) => p.cards).length;
+      const maxTokens = maxTokensForReading(cardCount, profile.verbosity);
+      let { text, truncated } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens });
       if (!text || !text.trim()) {
-        setError("Your strategist didn't come back with a reading that time — no consultation was used. Try drawing again.");
-        setScreen("dim-question");
+        ({ text, truncated } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens: Math.min(4096, maxTokens + 800) }));
+      }
+      if (!text || !text.trim()) {
+        setReading("Your strategist didn't come back with a reading that time — no consultation was used.");
+        setReadingFailed(true);
         return;
       }
+      await revealProgressively(text, (partial) => setReading(partial));
       setReading(text);
       setNoteTitle(question);
       pushEvent("reading", { dimension: dimKey, mode: mode.key, traditions: positions.flatMap((p) => p.cards.map((c) => c.tradition)) });
@@ -606,8 +620,8 @@ export default function Ifatarot() {
       extractVesselInsight(`Question: "${question}"\nReading given: ${text}`).then((ins) => { if (ins) recordVesselInsight(ins); });
       if (attachNoteId) await appendReadingToNote(attachNoteId, { dimKey, modeLabel: mode.title, question, positions, reading: text });
     } catch (e) {
-      setError(e && e.message && e.message.includes("consultation") ? e.message : "The reading could not be generated. Check your connection and try again — no consultation was used.");
-      setScreen("dim-question");
+      setReading(`Your cards are drawn, but the reading couldn't reach ${profile.agentName || "your strategist"} — check your connection and tap "Try again" below. No consultation was used.`);
+      setReadingFailed(true);
     } finally { setLoading(false); }
   }
 
@@ -620,18 +634,21 @@ export default function Ifatarot() {
     if (!creditGate()) return;
     const nextLog = [...strategistLog, { role: "user", text: q }];
     setStrategistLog(nextLog); setStrategistInput(""); setStrategistLoading(true); setStrategistSuggestion(null);
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setStrategistLog([...nextLog, { role: "agent", text: `I can't reach the cosmos without a connection right now — reconnect and ask me again. No consultation was used.` }]);
+      setStrategistLoading(false);
+      return;
+    }
     try {
-      const system = buildSystemPrompt(profile) + "\n\nThis is a live back-and-forth conversation before any cards are drawn. Build on everything said so far, ask a clarifying question if it would sharpen the question, and work toward a clear synthesis of what's really being asked. Only speak to their question and Ifatarot — no generic advice.";
+      const system = buildSystemPrompt(profile) + "\n\nThis is a live back-and-forth conversation before any cards are drawn. Build on everything said so far, ask a clarifying question if it would sharpen the question, and work toward a clear synthesis of what's really being asked. Only speak to their question and Ifatarot — no generic advice. Keep replies to a few sentences unless real depth is needed.";
       const apiMessages = nextLog.map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
-      let answer = await streamAgentMessages(system, apiMessages, (partial) => {
-        setStrategistLog([...nextLog, { role: "agent", text: partial }]);
-      });
-      if (!answer || !answer.trim()) answer = await callAgentMessages(system, apiMessages); // one quiet retry
+      let { text: answer } = await callAgentMessagesFull(system, apiMessages, { maxTokens: 1200 });
       if (!answer || !answer.trim()) {
         setStrategistLog([...nextLog, { role: "agent", text: "That didn't come through clearly — no consultation was used. Try sending it again." }]);
         setStrategistLoading(false);
         return;
       }
+      await revealProgressively(answer, (partial) => setStrategistLog([...nextLog, { role: "agent", text: partial }]));
       const updatedLog = [...nextLog, { role: "agent", text: answer }];
       setStrategistLog(updatedLog);
       await consumeCredit();
@@ -642,7 +659,7 @@ export default function Ifatarot() {
       setStrategistSuggestion({ dimKey: match, question: q });
       pushEvent("strategist", { dimension: match });
     } catch (e) {
-      setStrategistLog([...nextLog, { role: "agent", text: e && e.message && e.message.includes("consultation") ? e.message : "Something went wrong reaching your strategist. Try again in a moment." }]);
+      setStrategistLog([...nextLog, { role: "agent", text: "Something went wrong reaching your strategist — no consultation was used. Try again in a moment." }]);
     } finally { setStrategistLoading(false); }
   }
 
@@ -690,6 +707,10 @@ export default function Ifatarot() {
   async function sendNoteChatMessage(note) {
     const q = noteChatInput.trim();
     if (!q || !creditGate()) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setError("You're offline right now — no tailored guidance without a connection. No consultation was used.");
+      return;
+    }
     setNoteChatLoading(true); setNoteChatInput("");
     const normalized = normalizeNote(note);
     const historyMessages = normalized.entries.map((e) => {
@@ -709,7 +730,7 @@ export default function Ifatarot() {
       await consumeCredit();
       extractVesselInsight(`Seeker said: "${q}"\nStrategist replied: ${answer}`).then((ins) => { if (ins) recordVesselInsight(ins); });
     } catch (e) {
-      setError(e && e.message && e.message.includes("consultation") ? e.message : "Couldn't reach your strategist. Try again — no consultation was used.");
+      setError("Couldn't reach your strategist. Try again — no consultation was used.");
     } finally { setNoteChatLoading(false); }
   }
   function drawAnotherForNote(note) {
@@ -767,7 +788,8 @@ export default function Ifatarot() {
             <div style={{ textAlign: "center", marginBottom: 32, marginTop: 4 }}>
               <div style={{ display: "flex", justifyContent: "center", marginBottom: -6 }}><StarSelector decorative value={null} onChange={() => {}} size={110} /></div>
               <div style={{ fontFamily: "Fraunces, serif", fontSize: 28, color: GOLD }}>Ifatarot</div>
-              <div style={{ fontSize: 13, color: SAGE, marginTop: 4 }}>Two traditions. One clear answer.</div>
+              <div style={{ fontSize: 11, color: SAGE, marginTop: 2, letterSpacing: 0.5 }}>by Ifakande</div>
+              <div style={{ fontSize: 13, color: SAGE, marginTop: 8 }}>Two traditions. One clear answer.</div>
               {onboarded && <div style={{ fontSize: 11, color: SAGE, marginTop: 10 }}>{computeCredits(profile).credits}/{CREDIT_MAX} consultations available</div>}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -937,8 +959,13 @@ export default function Ifatarot() {
             </div>
             {loading && !reading && <p style={{ fontSize: 13, color: SAGE, fontStyle: "italic" }}>{profile.agentName || "Your strategist"} is reading what came up...</p>}
             <p style={{ fontSize: 15, lineHeight: 1.8, color: IVORY, whiteSpace: "pre-wrap" }}>{reading}{loading && reading && <span style={{ opacity: 0.5 }}>▍</span>}</p>
-            {!loading && <div style={{ marginTop: 8, fontSize: 13, color: SAGE }}>&mdash; {profile.agentName || "your agent"}</div>}
-            {!loading && attachNoteId ? (
+            {!loading && !readingFailed && <div style={{ marginTop: 8, fontSize: 13, color: SAGE }}>&mdash; {profile.agentName || "your agent"}</div>}
+            {!loading && readingFailed ? (
+              <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                <PrimaryButton style={{ flex: 1 }} onClick={drawAndReveal}>Try again</PrimaryButton>
+                <GhostButton style={{ flex: 1 }} onClick={() => go("home")}>Home</GhostButton>
+              </div>
+            ) : !loading && attachNoteId ? (
               <PrimaryButton style={{ marginTop: 20 }} onClick={() => { setAttachNoteId(null); go("notes"); setActiveNote(null); loadNotes(); }}>Back to your note</PrimaryButton>
             ) : !loading && (
               <div>
@@ -974,8 +1001,13 @@ export default function Ifatarot() {
                 </div>
               </div>
               <p style={{ fontSize: 15, lineHeight: 1.8, color: IVORY, whiteSpace: "pre-wrap" }}>{reading}{loading && reading && <span style={{ opacity: 0.5 }}>▍</span>}</p>
-              {!loading && <div style={{ marginTop: 8, fontSize: 13, color: SAGE }}>&mdash; {profile.agentName || "your agent"}</div>}
-              {!loading && attachNoteId ? (
+              {!loading && !readingFailed && <div style={{ marginTop: 8, fontSize: 13, color: SAGE }}>&mdash; {profile.agentName || "your agent"}</div>}
+              {!loading && readingFailed ? (
+                <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                  <PrimaryButton style={{ flex: 1 }} onClick={drawAndReveal}>Try again</PrimaryButton>
+                  <GhostButton style={{ flex: 1 }} onClick={() => go("home")}>Home</GhostButton>
+                </div>
+              ) : !loading && attachNoteId ? (
                 <PrimaryButton style={{ marginTop: 20 }} onClick={() => { setAttachNoteId(null); go("notes"); setActiveNote(null); loadNotes(); }}>Back to your note</PrimaryButton>
               ) : !loading && (
                 <div>

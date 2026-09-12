@@ -35,7 +35,7 @@ function formatWait(hours) {
 
 app.post("/api/generate", async (req, res) => {
   const deviceId = req.headers["x-device-id"] || req.ip || "anon";
-  const { system, messages, max_tokens, stream, internal } = req.body || {};
+  const { system, messages, max_tokens, internal } = req.body || {};
   if (!messages) { res.status(400).json({ error: "Missing messages." }); return; }
 
   const state = getState(deviceId);
@@ -60,43 +60,13 @@ app.post("/api/generate", async (req, res) => {
         max_tokens: max_tokens || 1200,
         system,
         messages,
-        stream: !!stream,
       }),
     });
 
-    // Only spend a credit on genuinely meaningful content — an empty or failed
-    // response should never cost the seeker a consultation.
-    if (stream) {
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache");
-      res.setHeader("Connection", "keep-alive");
-      const reader = upstream.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "", sawText = false;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        res.write(value); // forward immediately — charging decision happens after, doesn't block delivery
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop();
-        for (const line of lines) {
-          if (!line.startsWith("data:")) continue;
-          const jsonStr = line.slice(5).trim();
-          if (!jsonStr || jsonStr === "[DONE]") continue;
-          try {
-            const evt = JSON.parse(jsonStr);
-            if (evt.type === "content_block_delta" && evt.delta && evt.delta.text && evt.delta.text.trim()) sawText = true;
-          } catch (e) {}
-        }
-      }
-      if (upstream.ok && !internal && sawText) state.credits -= 1;
-      res.end();
-      return;
-    }
-
     const data = await upstream.json();
     if (!upstream.ok) { res.status(upstream.status).json({ error: data.error?.message || "Anthropic API error" }); return; }
+    // Only spend a credit on genuinely meaningful content — an empty or failed
+    // response should never cost the seeker a consultation.
     const hasText = (data.content || []).some((b) => b.text && b.text.trim());
     if (!internal && hasText) state.credits -= 1;
     res.status(200).json(data);
