@@ -372,7 +372,25 @@ function formatWait(hours) {
 }
 
 /* ---------- app ---------- */
-const emptyProfile = { name: "", agentName: "", plane: "", element: "", agentElement: "", dob: "", tob: "", pob: "", jargon: "simple", verbosity: "warm", tarotReversals: true, ifaReversalsExperimental: false, residentDimension: null, credits: CREDIT_MAX, lastCreditRefillAt: null, relayMode: false, relayForName: "", vesselInsights: {}, vesselPowers: {} };
+const emptyProfile = { name: "", agentName: "", plane: "", element: "", agentElement: "", dob: "", tob: "", pob: "", jargon: "simple", verbosity: "warm", tarotReversals: true, ifaReversalsExperimental: false, residentDimension: null, credits: CREDIT_MAX, lastCreditRefillAt: null, relayMode: false, relayForName: "", vesselInsights: {}, vesselPowers: {}, restHourEnabled: false, restHourStart: "", readingMode: "speed" };
+
+function isStrategistResting(profile) {
+  if (!profile.restHourEnabled || !profile.restHourStart) return { resting: false };
+  const [h, m] = profile.restHourStart.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return { resting: false };
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const startMin = h * 60 + m;
+  const endMin = (startMin + 60) % 1440;
+  const resting = startMin < endMin ? (nowMin >= startMin && nowMin < endMin) : (nowMin >= startMin || nowMin < endMin);
+  if (!resting) return { resting: false };
+  const untilMin = (endMin - nowMin + 1440) % 1440 || 60;
+  return { resting: true, untilMin };
+}
+function formatMinutes(totalMin) {
+  const h = Math.floor(totalMin / 60), m = totalMin % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
 
 export default function Ifatarot() {
   const [screen, setScreen] = useState("home");
@@ -395,6 +413,8 @@ export default function Ifatarot() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [readingFailed, setReadingFailed] = useState(false);
+  const [revealedCount, setRevealedCount] = useState(0);
+  const [showVibe, setShowVibe] = useState(false);
   const [dimensionNotes, setDimensionNotes] = useState([]);
 
   const [libraryTradition, setLibraryTradition] = useState(null);
@@ -454,9 +474,31 @@ export default function Ifatarot() {
     dismissInstallCard();
   }
 
+  /* Patience mode: orbs drop one at a time, then a brief "vibe" transition,
+     then hand off to the reading screen — independent of whether the reading
+     itself is done generating yet (it usually is, by the time this finishes). */
+  useEffect(() => {
+    if (screen !== "dim-reveal" || !resolved) return;
+    setRevealedCount(0);
+    setShowVibe(false);
+    const items = resolved.flatMap((p) => p.cards.map((c) => ({ p, c })));
+    const perCard = 550;
+    const timers = [];
+    items.forEach((_, i) => timers.push(setTimeout(() => setRevealedCount(i + 1), (i + 1) * perCard)));
+    const total = items.length * perCard;
+    timers.push(setTimeout(() => setShowVibe(true), total + 200));
+    timers.push(setTimeout(() => setScreen("dim-reading"), total + 1200));
+    return () => timers.forEach(clearTimeout);
+  }, [screen]);
+
   function creditGate() {
     const c = computeCredits(profile);
     if (c.credits < 1) { setError(`You're out of consultations for now — the next one unlocks in about ${formatWait(c.hoursUntilNext)}.`); return false; }
+    return true;
+  }
+  function strategistGate() {
+    const r = isStrategistResting(profile);
+    if (r.resting) { setError(`${profile.agentName || "Your strategist"} is resting right now — back in about ${formatMinutes(r.untilMin)}.`); return false; }
     return true;
   }
   async function consumeCredit() {
@@ -524,17 +566,22 @@ export default function Ifatarot() {
   function quickDraw() {
     if (!profile.residentDimension) return;
     if (!question.trim()) { setError("Enter or record your question first."); return; }
+    if (!strategistGate()) return;
+    if (!creditGate()) return;
     const { dimKey: rk, modeKey, assignment: ra } = profile.residentDimension;
     const dc = DIMENSIONS[rk]; const m = dc.modes.find((mm) => mm.key === modeKey);
     setDimKey(rk); setMode(m); setAssignment(ra); setResolved(null); setReading(""); setError(null); setResidentMsg(""); setViaResident(true); setAttachNoteId(null);
     loadDimensionNotes(rk);
+    if (profile.readingMode === "stealth") { drawAndReveal({ dimKey: rk, mode: m, assignment: ra, question }); return; }
     setScreen("dim-shuffling");
   }
 
-  function traditionsForPosition(posKey) {
-    if (mode.traditionMode === "single") return [assignment.__single];
-    if (mode.traditionMode === "perPosition") { const v = assignment[posKey]; return v === "both" ? ["ifa", "tarot"] : [v]; }
-    if (mode.traditionMode === "perGroup") { const group = mode.groups.find((g) => g.positionKeys.includes(posKey)); return [assignment[group.key]]; }
+  function traditionsForPosition(posKey, modeArg, assignmentArg) {
+    const m = modeArg || mode;
+    const a = assignmentArg || assignment;
+    if (m.traditionMode === "single") return [a.__single];
+    if (m.traditionMode === "perPosition") { const v = a[posKey]; return v === "both" ? ["ifa", "tarot"] : [v]; }
+    if (m.traditionMode === "perGroup") { const group = m.groups.find((g) => g.positionKeys.includes(posKey)); return [a[group.key]]; }
     return ["tarot"];
   }
   function assignmentComplete() {
@@ -575,21 +622,31 @@ export default function Ifatarot() {
 
   function beginShuffle() {
     if (!question.trim()) { setError("Enter or record your question first."); return; }
-    setError(null); setScreen("dim-shuffling");
+    if (!strategistGate()) return;
+    if (!creditGate()) return;
+    setError(null);
+    if (profile.readingMode === "stealth") { drawAndReveal(); return; }
+    setScreen("dim-shuffling");
   }
 
-  async function drawAndReveal() {
+  async function drawAndReveal(overrides) {
+    const useDimKey = (overrides && overrides.dimKey) || dimKey;
+    const useMode = (overrides && overrides.mode) || mode;
+    const useAssignment = (overrides && overrides.assignment) || assignment;
+    const useQuestion = overrides && overrides.question !== undefined ? overrides.question : question;
+
+    if (!strategistGate()) { setScreen("dim-question"); return; }
     if (!creditGate()) { setScreen("dim-question"); return; }
     setLoading(true);
     setReadingFailed(false);
-    const positions = mode.positions.map((p) => {
-      const traditions = traditionsForPosition(p.key);
+    const positions = useMode.positions.map((p) => {
+      const traditions = traditionsForPosition(p.key, useMode, useAssignment);
       const cards = traditions.map((t) => drawCard(t, t === "tarot" ? profile.tarotReversals : profile.ifaReversalsExperimental));
       return { ...p, cards };
     });
     setResolved(positions);
     setReading("");
-    setScreen("dim-reading");
+    setScreen(profile.readingMode === "patience" ? "dim-reveal" : "dim-reading");
 
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       setReading(`Your cards are drawn. ${profile.agentName || "Your strategist"} needs a connection to give tailored guidance, though — reconnect and tap "Try again" below. No consultation was used.`);
@@ -600,12 +657,12 @@ export default function Ifatarot() {
 
     try {
       const system = buildSystemPrompt(profile);
-      const user = buildMultiPrompt(dimKey, mode.key, DIMENSIONS[dimKey].label, mode.title, positions, question);
+      const user = buildMultiPrompt(useDimKey, useMode.key, DIMENSIONS[useDimKey].label, useMode.title, positions, useQuestion);
       const cardCount = positions.flatMap((p) => p.cards).length;
       const maxTokens = maxTokensForReading(cardCount, profile.verbosity);
-      let { text, truncated } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens });
+      let { text } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens });
       if (!text || !text.trim()) {
-        ({ text, truncated } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens: Math.min(4096, maxTokens + 800) }));
+        ({ text } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens: Math.min(4096, maxTokens + 800) }));
       }
       if (!text || !text.trim()) {
         setReading("Your strategist didn't come back with a reading that time — no consultation was used.");
@@ -614,11 +671,11 @@ export default function Ifatarot() {
       }
       await revealProgressively(text, (partial) => setReading(partial));
       setReading(text);
-      setNoteTitle(question);
-      pushEvent("reading", { dimension: dimKey, mode: mode.key, traditions: positions.flatMap((p) => p.cards.map((c) => c.tradition)) });
+      setNoteTitle(useQuestion);
+      pushEvent("reading", { dimension: useDimKey, mode: useMode.key, traditions: positions.flatMap((p) => p.cards.map((c) => c.tradition)) });
       await consumeCredit();
-      extractVesselInsight(`Question: "${question}"\nReading given: ${text}`).then((ins) => { if (ins) recordVesselInsight(ins); });
-      if (attachNoteId) await appendReadingToNote(attachNoteId, { dimKey, modeLabel: mode.title, question, positions, reading: text });
+      extractVesselInsight(`Question: "${useQuestion}"\nReading given: ${text}`).then((ins) => { if (ins) recordVesselInsight(ins); });
+      if (attachNoteId) await appendReadingToNote(attachNoteId, { dimKey: useDimKey, modeLabel: useMode.title, question: useQuestion, positions, reading: text });
     } catch (e) {
       setReading(`Your cards are drawn, but the reading couldn't reach ${profile.agentName || "your strategist"} — check your connection and tap "Try again" below. No consultation was used.`);
       setReadingFailed(true);
@@ -631,6 +688,7 @@ export default function Ifatarot() {
   async function sendStrategistMessage(overrideText) {
     const q = (overrideText || strategistInput).trim();
     if (!q) return;
+    if (!strategistGate()) return;
     if (!creditGate()) return;
     const nextLog = [...strategistLog, { role: "user", text: q }];
     setStrategistLog(nextLog); setStrategistInput(""); setStrategistLoading(true); setStrategistSuggestion(null);
@@ -706,7 +764,7 @@ export default function Ifatarot() {
   }
   async function sendNoteChatMessage(note) {
     const q = noteChatInput.trim();
-    if (!q || !creditGate()) return;
+    if (!q || !strategistGate() || !creditGate()) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       setError("You're offline right now — no tailored guidance without a connection. No consultation was used.");
       return;
@@ -768,6 +826,8 @@ export default function Ifatarot() {
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;500;600&family=Karla:wght@400;500;600;700&display=swap');
         @keyframes shuffleMove { 0% { transform: translateX(-46px) rotate(-10deg); } 50% { transform: translateX(46px) rotate(10deg); } 100% { transform: translateX(-46px) rotate(-10deg); } }
         @keyframes micPulse { 0% { box-shadow: 0 0 0 0 rgba(196,101,46,0.5); } 70% { box-shadow: 0 0 0 12px rgba(196,101,46,0); } 100% { box-shadow: 0 0 0 0 rgba(196,101,46,0); } }
+        @keyframes orbResolve { 0% { opacity: 0; transform: scale(0.6); } 100% { opacity: 1; transform: scale(1); } }
+        @keyframes vibesPulse { 0% { opacity: 0; transform: translateX(-50%) scale(0.3); } 50% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) scale(2.4); } }
       `}</style>
       <div style={wrap}>
 
@@ -791,6 +851,7 @@ export default function Ifatarot() {
               <div style={{ fontSize: 11, color: SAGE, marginTop: 2, letterSpacing: 0.5 }}>by Ifakande</div>
               <div style={{ fontSize: 13, color: SAGE, marginTop: 8 }}>Two traditions. One clear answer.</div>
               {onboarded && <div style={{ fontSize: 11, color: SAGE, marginTop: 10 }}>{computeCredits(profile).credits}/{CREDIT_MAX} consultations available</div>}
+              {onboarded && isStrategistResting(profile).resting && <div style={{ fontSize: 11, color: CAMWOOD, marginTop: 4 }}>{profile.agentName || "Your strategist"} is resting — back in about {formatMinutes(isStrategistResting(profile).untilMin)}</div>}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {profile.residentDimension && (
@@ -911,7 +972,7 @@ export default function Ifatarot() {
         {screen === "dim-question" && (
           <div>
             <Header title="Ask your question" onBack={() => (viaResident ? go("home") : setScreen("dim-tradition"))} />
-            <p style={{ fontSize: 11, color: SAGE, marginBottom: 16 }}>{computeCredits(profile).credits} consultation{computeCredits(profile).credits === 1 ? "" : "s"} available right now</p>
+            <p style={{ fontSize: 11, color: SAGE, marginBottom: 16 }}>{computeCredits(profile).credits} consultation{computeCredits(profile).credits === 1 ? "" : "s"} available right now{isStrategistResting(profile).resting ? ` · resting for about ${formatMinutes(isStrategistResting(profile).untilMin)}` : ""}</p>
             <Field label="Speak or type what's on your mind">
               <textarea value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="What do I need to understand about this decision?" style={{ width: "100%", minHeight: 110, boxSizing: "border-box", background: "rgba(243,234,216,0.05)", border: `1px solid ${HAIRLINE}`, borderRadius: 6, padding: 14, color: IVORY, fontSize: 15, fontFamily: "Karla, sans-serif", resize: "vertical", outline: "none" }} />
             </Field>
@@ -937,7 +998,7 @@ export default function Ifatarot() {
                   ))}
                 </div>
                 <p style={{ textAlign: "center", color: SAGE, fontSize: 13, marginBottom: 20 }}>Let it run as long as feels right.</p>
-                <PrimaryButton onClick={drawAndReveal}>Stop shuffling</PrimaryButton>
+                <PrimaryButton onClick={() => drawAndReveal()}>Stop shuffling</PrimaryButton>
               </div>
             ) : (
               <p style={{ textAlign: "center", color: SAGE, fontSize: 14, marginTop: 60 }}>{profile.agentName || "Your strategist"} is reading what came up...</p>
@@ -945,6 +1006,34 @@ export default function Ifatarot() {
             {error && <p style={{ color: CAMWOOD, fontSize: 13, marginTop: 16 }}>{error}</p>}
           </div>
         )}
+
+        {screen === "dim-reveal" && resolved && (() => {
+          const items = resolved.flatMap((p) => p.cards.map((c) => ({ p, c })));
+          return (
+            <div style={{ textAlign: "center", paddingTop: 24 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 16, marginBottom: 32 }}>
+                {items.map((item, i) => (
+                  <div key={i} style={{ width: 76 }}>
+                    {i < revealedCount ? (
+                      <div style={{ animation: "orbResolve 0.5s ease" }}>
+                        <CardArt tradition={item.c.tradition} name={item.c.name} size={64} />
+                      </div>
+                    ) : (
+                      <div style={{ width: 64, height: 90, borderRadius: 8, background: "radial-gradient(circle, rgba(217,169,74,0.55), rgba(217,169,74,0.05))", border: `1px solid ${HAIRLINE}`, margin: "0 auto" }} />
+                    )}
+                    <div style={{ fontSize: 9, color: SAGE, marginTop: 6 }}>{item.p.label}</div>
+                  </div>
+                ))}
+              </div>
+              <p style={{ color: SAGE, fontSize: 13 }}>{showVibe ? `${profile.agentName || "Your strategist"} is settling into the pattern...` : "The cards are dropping into place..."}</p>
+              {showVibe && (
+                <div style={{ position: "relative", height: 60, marginTop: 8 }}>
+                  <div style={{ position: "absolute", left: "50%", top: 0, width: 200, height: 60, borderRadius: "50%", background: "radial-gradient(circle, rgba(217,169,74,0.4), transparent)", animation: "vibesPulse 1s ease-out" }} />
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {screen === "dim-reading" && resolved && dimKey !== "2D" && (
           <div>
@@ -962,7 +1051,7 @@ export default function Ifatarot() {
             {!loading && !readingFailed && <div style={{ marginTop: 8, fontSize: 13, color: SAGE }}>&mdash; {profile.agentName || "your agent"}</div>}
             {!loading && readingFailed ? (
               <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-                <PrimaryButton style={{ flex: 1 }} onClick={drawAndReveal}>Try again</PrimaryButton>
+                <PrimaryButton style={{ flex: 1 }} onClick={() => drawAndReveal()}>Try again</PrimaryButton>
                 <GhostButton style={{ flex: 1 }} onClick={() => go("home")}>Home</GhostButton>
               </div>
             ) : !loading && attachNoteId ? (
@@ -1004,7 +1093,7 @@ export default function Ifatarot() {
               {!loading && !readingFailed && <div style={{ marginTop: 8, fontSize: 13, color: SAGE }}>&mdash; {profile.agentName || "your agent"}</div>}
               {!loading && readingFailed ? (
                 <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-                  <PrimaryButton style={{ flex: 1 }} onClick={drawAndReveal}>Try again</PrimaryButton>
+                  <PrimaryButton style={{ flex: 1 }} onClick={() => drawAndReveal()}>Try again</PrimaryButton>
                   <GhostButton style={{ flex: 1 }} onClick={() => go("home")}>Home</GhostButton>
                 </div>
               ) : !loading && attachNoteId ? (
@@ -1108,7 +1197,7 @@ export default function Ifatarot() {
         {screen === "strategist" && (
           <div>
             <Header title="Your strategist" onBack={() => go("home")} />
-            <p style={{ fontSize: 11, color: SAGE, marginBottom: 12 }}>{computeCredits(profile).credits} consultation{computeCredits(profile).credits === 1 ? "" : "s"} available right now</p>
+            <p style={{ fontSize: 11, color: SAGE, marginBottom: 12 }}>{computeCredits(profile).credits} consultation{computeCredits(profile).credits === 1 ? "" : "s"} available right now{isStrategistResting(profile).resting ? ` · resting for about ${formatMinutes(isStrategistResting(profile).untilMin)}` : ""}</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: 360, overflowY: "auto", marginBottom: 16 }}>
               {strategistLog.length === 0 && <p style={{ color: SAGE, fontSize: 13 }}>Ask {profile.agentName || "your strategist"} anything. Keep talking it through — they'll work with you toward a clear synthesis, then suggest a reading depth if one fits.</p>}
               {strategistLog.map((m, i) => (
@@ -1224,6 +1313,27 @@ export default function Ifatarot() {
             <Field label="Reading for someone else">
               <PillButton active={draftProfile.relayMode} onClick={() => setDraftProfile({ ...draftProfile, relayMode: !draftProfile.relayMode })}>{draftProfile.relayMode ? "On — consulting on someone else's behalf" : "Off — reading for myself"}</PillButton>
               {draftProfile.relayMode && <div style={{ marginTop: 10 }}><TextInput placeholder="Who are you reading for?" value={draftProfile.relayForName} onChange={(e) => setDraftProfile({ ...draftProfile, relayForName: e.target.value })} /></div>}
+            </Field>
+            <Field label="Reading mode">
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                <PillButton active={draftProfile.readingMode === "speed"} onClick={() => setDraftProfile({ ...draftProfile, readingMode: "speed" })}>Speed</PillButton>
+                <PillButton active={draftProfile.readingMode === "stealth"} onClick={() => setDraftProfile({ ...draftProfile, readingMode: "stealth" })}>Stealth</PillButton>
+                <PillButton active={draftProfile.readingMode === "patience"} onClick={() => setDraftProfile({ ...draftProfile, readingMode: "patience" })}>Patience</PillButton>
+              </div>
+              <p style={{ fontSize: 12, color: SAGE, lineHeight: 1.5, margin: 0 }}>
+                {draftProfile.readingMode === "speed" && "The usual shuffle, then straight to your reading."}
+                {draftProfile.readingMode === "stealth" && "No shuffle ceremony at all — quiet and immediate, straight to the reading."}
+                {draftProfile.readingMode === "patience" && "After you stop shuffling, each card settles in one at a time before the reading appears."}
+              </p>
+            </Field>
+            <Field label="Daily rest hour">
+              <PillButton active={draftProfile.restHourEnabled} onClick={() => setDraftProfile({ ...draftProfile, restHourEnabled: !draftProfile.restHourEnabled })}>{draftProfile.restHourEnabled ? "On" : "Off"}</PillButton>
+              {draftProfile.restHourEnabled && (
+                <div style={{ marginTop: 10 }}>
+                  <TextInput type="time" value={draftProfile.restHourStart} onChange={(e) => setDraftProfile({ ...draftProfile, restHourStart: e.target.value })} />
+                  <p style={{ fontSize: 12, color: SAGE, marginTop: 8, lineHeight: 1.5 }}>{profile.agentName || "Your strategist"} will be unavailable for one hour starting at this time each day — even if you need them. It's meant to make this feel like a real presence with real limits, not a machine that's always on.</p>
+                </div>
+              )}
             </Field>
             <PrimaryButton onClick={saveSettings}>Save changes</PrimaryButton>
             <GhostButton style={{ width: "100%", boxSizing: "border-box", marginTop: 12 }} onClick={() => { loadEvents(); setScreen("stats"); }}>View your statistics</GhostButton>
