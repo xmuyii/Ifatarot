@@ -22,6 +22,15 @@ const ORIENTATIONS = [
   { key: "mental", label: "Mental", angle: 198, voice: "clear, analytical, structured" },
 ];
 
+const SUGGESTED_QUESTIONS = [
+  "What do I need to understand about this situation?",
+  "What's blocking me from moving forward?",
+  "What should I focus on this week?",
+  "What is this relationship really showing me?",
+  "What choice deserves my attention right now?",
+  "What am I not seeing clearly?",
+];
+
 /* ---------- Tarot deck (78) ---------- */
 const MAJORS = [
   ["The Fool", "A leap into the unknown, trusting the first step before the plan is finished.", "Hesitation, recklessness, or a leap taken without any preparation at all."],
@@ -122,6 +131,59 @@ function withDerived(p) {
   return d;
 }
 
+/* ---------- moon phase (pure calculation, no network needed) ---------- */
+function getMoonPhase(date) {
+  const d = date || new Date();
+  const synodic = 29.53058867;
+  const knownNewMoon = Date.UTC(2000, 0, 6, 18, 14);
+  const diffDays = (d.getTime() - knownNewMoon) / 86400000;
+  let phaseDays = diffDays % synodic;
+  if (phaseDays < 0) phaseDays += synodic;
+  const t = phaseDays / synodic; // 0..1, 0 = new, 0.5 = full
+  const illumination = Math.round((1 - Math.cos(2 * Math.PI * t)) / 2 * 100);
+  const waxing = t < 0.5;
+  let name;
+  if (t < 0.03 || t > 0.97) name = "New Moon";
+  else if (t < 0.22) name = "Waxing Crescent";
+  else if (t < 0.28) name = "First Quarter";
+  else if (t < 0.47) name = "Waxing Gibbous";
+  else if (t < 0.53) name = "Full Moon";
+  else if (t < 0.72) name = "Waning Gibbous";
+  else if (t < 0.78) name = "Last Quarter";
+  else name = "Waning Crescent";
+  return { name, illumination, waxing };
+}
+function MoonGlyph({ illumination, waxing, size }) {
+  const s = size || 44, r = s / 2 - 2, litWidth = (illumination / 100) * s;
+  return (
+    <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+      <defs><clipPath id={`moonClip-${s}`}><circle cx={s / 2} cy={s / 2} r={r} /></clipPath></defs>
+      <circle cx={s / 2} cy={s / 2} r={r} fill={INK} stroke={HAIRLINE} strokeWidth="1" />
+      <g clipPath={`url(#moonClip-${s})`}><rect x={waxing ? s - litWidth : 0} y="0" width={litWidth} height={s} fill={GOLD} /></g>
+    </svg>
+  );
+}
+
+/* ---------- odu connections — shared roots between drawn odu are meaningful, not coincidence ---------- */
+function oduRootsOf(name) {
+  const entry = ODU_256.find((o) => o.name === name);
+  return entry ? [entry.a, entry.b] : null;
+}
+function findOduConnections(resolved) {
+  const oduCards = [];
+  resolved.forEach((p) => p.cards.forEach((c) => { if (c.tradition === "ifa") oduCards.push({ label: p.label, name: c.name, roots: oduRootsOf(c.name) }); }));
+  const connections = [];
+  for (let i = 0; i < oduCards.length; i++) {
+    for (let j = i + 1; j < oduCards.length; j++) {
+      const a = oduCards[i], b = oduCards[j];
+      if (!a.roots || !b.roots) continue;
+      const shared = a.roots.filter((r) => b.roots.includes(r));
+      if (shared.length) connections.push(`${a.label} (${a.name}) and ${b.label} (${b.name}) share the ${shared.map((idx) => ODU_ROOT[idx]).join(" and ")} root.`);
+    }
+  }
+  return connections;
+}
+
 /* ---------- storage ---------- */
 async function safeGet(key) {
   try { const r = await window.storage.get(key); return r ? r.value : null; } catch (e) { return null; }
@@ -191,6 +253,8 @@ function buildSystemPrompt(profile) {
   const numerology = profile.numerologyReduced ? `Name expression number: ${profile.numerologyReduced} (raw letter sum ${profile.numerologySum}).` : "";
   const lifePath = profile.lifePath ? `Life path number: ${profile.lifePath}.` : "";
   const zodiac = profile.chineseZodiac ? `Chinese zodiac: ${profile.chineseZodiac}.` : "";
+  const moon = getMoonPhase();
+  const moonLine = `Tonight's sky: ${moon.name} (${moon.illumination}% lit).`;
   const relay = profile.relayMode && profile.relayForName
     ? `\nImportant: ${profile.name || "the seeker"} is not asking for themselves right now — they are consulting on behalf of ${profile.relayForName}, someone who isn't using Ifatarot. Speak about ${profile.relayForName} in the third person, in language ${profile.name || "the seeker"} can easily relay to them afterward. Don't address ${profile.relayForName} directly.`
     : "";
@@ -198,6 +262,7 @@ function buildSystemPrompt(profile) {
 
 ${birth} ${numerology} ${lifePath} ${zodiac}
 You may reference these blueprint numbers when genuinely relevant to the question — never recite them as a checklist.
+${moonLine} You may mention this if it genuinely fits — a Full Moon culminating, a New Moon starting fresh — but never force it in.
 ${relay}
 ${jargonLine(profile)} ${verbosityLine(profile)}
 
@@ -214,6 +279,8 @@ function buildMultiPrompt(dimKey, modeKey, dimLabel, modeTitle, resolved, questi
   let extra = "";
   if (dimKey === "2D" && modeKey === "duality") extra = "\n\nThis is a literal light-versus-dark reading: treat the Agreeable side as bright, open, affirming energy, and the Disagreeable side as its dark, resistant counterpart. Let that light/dark contrast actively shape how you interpret both cards, not just their positions.";
   if (dimKey === "2D" && modeKey === "polarity") extra = "\n\nThis is a spiritual-versus-physical reading: the Spiritual position carries a green, higher, sky-facing energy, and the Physical position carries a red, rooted, earth-facing energy. Let that elemental contrast actively shape your interpretation of both cards.";
+  const oduConnections = findOduConnections(resolved);
+  if (oduConnections.length) extra += `\n\nOdu connections detected across this spread — these shared roots are meaningful, not coincidence, weave them into your reading where it serves the question: ${oduConnections.join(" ")}`;
   return `This is a ${dimLabel} reading, laid out as "${modeTitle}". Positions and what was drawn:\n${lines.join("\n")}\n\nThe seeker's question: "${question}"${extra}\n\nAddress each position by its label, in order, then close with a short synthesis and one concrete next step. ${lengthGuidance}`;
 }
 function getDeviceId() {
@@ -428,6 +495,7 @@ export default function Ifatarot() {
 
   const [notesList, setNotesList] = useState([]);
   const [activeNote, setActiveNote] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [noteTitle, setNoteTitle] = useState("");
   const [residentMsg, setResidentMsg] = useState("");
 
@@ -522,6 +590,15 @@ export default function Ifatarot() {
   }
 
   async function loadNotes() { const raw = await safeGet("ifatarot:notes-list"); setNotesList(raw ? JSON.parse(raw) : []); }
+  async function deleteNote(id) {
+    const raw = await safeGet("ifatarot:notes-list");
+    const list = raw ? JSON.parse(raw) : [];
+    const filtered = list.filter((n) => n.id !== id);
+    try { await window.storage.set("ifatarot:notes-list", JSON.stringify(filtered)); } catch (e) {}
+    setNotesList(filtered);
+    setConfirmDeleteId(null);
+    if (activeNote && activeNote.id === id) setActiveNote(null);
+  }
   async function loadEvents() { const raw = await safeGet("ifatarot:events"); setEvents(raw ? JSON.parse(raw) : []); }
   async function loadDimensionNotes(key) { const raw = await safeGet("ifatarot:notes-list"); const list = raw ? JSON.parse(raw) : []; setDimensionNotes(list.filter((n) => n.dimKey === key)); }
 
@@ -532,6 +609,7 @@ export default function Ifatarot() {
   }
 
   function beginClicked() {
+    setAttachNoteId(null);
     if (onboarded) setScreen("begin");
     else { setDraftProfile(emptyProfile); setObStep(0); setScreen("onboarding"); }
   }
@@ -550,7 +628,7 @@ export default function Ifatarot() {
 
   function startDimension(key, prefillQuestion) {
     const dimCfg = DIMENSIONS[key];
-    setDimKey(key); setAssignment({}); setQuestion(prefillQuestion || ""); setResolved(null); setReading(""); setError(null); setResidentMsg(""); setViaResident(false); setAttachNoteId(null);
+    setDimKey(key); setAssignment({}); setQuestion(prefillQuestion || ""); setResolved(null); setReading(""); setError(null); setResidentMsg(""); setViaResident(false);
     loadDimensionNotes(key);
     if (dimCfg.modes.length === 1) { setMode(dimCfg.modes[0]); setScreen("dim-tradition"); }
     else { setMode(null); setScreen("dim-mode"); }
@@ -672,7 +750,7 @@ export default function Ifatarot() {
       await revealProgressively(text, (partial) => setReading(partial));
       setReading(text);
       setNoteTitle(useQuestion);
-      pushEvent("reading", { dimension: useDimKey, mode: useMode.key, traditions: positions.flatMap((p) => p.cards.map((c) => c.tradition)) });
+      pushEvent("reading", { dimension: useDimKey, mode: useMode.key, traditions: positions.flatMap((p) => p.cards.map((c) => c.tradition)), cardNames: positions.flatMap((p) => p.cards.map((c) => ({ tradition: c.tradition, name: c.name }))) });
       await consumeCredit();
       extractVesselInsight(`Question: "${useQuestion}"\nReading given: ${text}`).then((ins) => { if (ins) recordVesselInsight(ins); });
       if (attachNoteId) await appendReadingToNote(attachNoteId, { dimKey: useDimKey, modeLabel: useMode.title, question: useQuestion, positions, reading: text });
@@ -792,8 +870,8 @@ export default function Ifatarot() {
     } finally { setNoteChatLoading(false); }
   }
   function drawAnotherForNote(note) {
-    startDimension("1D");
     setAttachNoteId(note.id);
+    setScreen("begin");
   }
   async function makeResident() {
     const updated = { ...profile, residentDimension: { dimKey, modeKey: mode.key, assignment } };
@@ -858,6 +936,11 @@ export default function Ifatarot() {
                 <div style={{ border: `1px solid ${HAIRLINE}`, borderRadius: 10, padding: 14, background: "rgba(217,169,74,0.04)" }}>
                   <div style={{ fontSize: 11, color: SAGE, marginBottom: 8 }}>Quick ask &middot; {DIMENSIONS[profile.residentDimension.dimKey].modes.find((m) => m.key === profile.residentDimension.modeKey)?.title}</div>
                   <textarea value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="What's on your mind?" style={{ width: "100%", minHeight: 64, boxSizing: "border-box", background: "rgba(243,234,216,0.05)", border: `1px solid ${HAIRLINE}`, borderRadius: 6, padding: 10, color: IVORY, fontSize: 14, fontFamily: "Karla, sans-serif", resize: "vertical", outline: "none", marginBottom: 8 }} />
+                  {!question.trim() && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                      {SUGGESTED_QUESTIONS.slice(0, 3).map((q) => <PillButton key={q} onClick={() => setQuestion(q)}>{q}</PillButton>)}
+                    </div>
+                  )}
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={toggleMic} style={{ width: 44, borderRadius: 8, border: `1px solid ${listening ? CAMWOOD : HAIRLINE}`, background: listening ? "rgba(196,101,46,0.15)" : "transparent", color: listening ? GOLD : IVORY, cursor: "pointer", animation: listening ? "micPulse 1.4s infinite" : "none" }}>&#127908;</button>
                     <PrimaryButton style={{ flex: 1 }} onClick={quickDraw}>Shuffle now</PrimaryButton>
@@ -926,6 +1009,7 @@ export default function Ifatarot() {
         {screen === "begin" && (
           <div>
             <Header title="Choose your depth" onBack={() => go("home")} />
+            {attachNoteId && <p style={{ fontSize: 12, color: GOLD, marginBottom: 16 }}>Adding this reading to your saved note.</p>}
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {Object.keys(DIMENSIONS).map((k) => <GhostButton key={k} onClick={() => startDimension(k)}>{DIMENSIONS[k].label}</GhostButton>)}
             </div>
@@ -973,9 +1057,18 @@ export default function Ifatarot() {
           <div>
             <Header title="Ask your question" onBack={() => (viaResident ? go("home") : setScreen("dim-tradition"))} />
             <p style={{ fontSize: 11, color: SAGE, marginBottom: 16 }}>{computeCredits(profile).credits} consultation{computeCredits(profile).credits === 1 ? "" : "s"} available right now{isStrategistResting(profile).resting ? ` · resting for about ${formatMinutes(isStrategistResting(profile).untilMin)}` : ""}</p>
+            {attachNoteId && <p style={{ fontSize: 12, color: GOLD, marginBottom: 12 }}>Adding this reading to your saved note.</p>}
             <Field label="Speak or type what's on your mind">
               <textarea value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="What do I need to understand about this decision?" style={{ width: "100%", minHeight: 110, boxSizing: "border-box", background: "rgba(243,234,216,0.05)", border: `1px solid ${HAIRLINE}`, borderRadius: 6, padding: 14, color: IVORY, fontSize: 15, fontFamily: "Karla, sans-serif", resize: "vertical", outline: "none" }} />
             </Field>
+            {!question.trim() && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 11, color: SAGE, marginBottom: 8 }}>Not sure what to ask?</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {SUGGESTED_QUESTIONS.map((q) => <PillButton key={q} onClick={() => setQuestion(q)}>{q}</PillButton>)}
+                </div>
+              </div>
+            )}
             <button onClick={toggleMic} style={{ width: "100%", boxSizing: "border-box", marginBottom: 8, padding: 12, borderRadius: 8, border: `1px solid ${listening ? CAMWOOD : HAIRLINE}`, background: listening ? "rgba(196,101,46,0.15)" : "transparent", color: listening ? GOLD : IVORY, fontFamily: "Karla, sans-serif", cursor: "pointer", animation: listening ? "micPulse 1.4s infinite" : "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
               <span style={{ width: 8, height: 8, borderRadius: "50%", background: listening ? CAMWOOD : SAGE, display: "inline-block" }} />
               {listening ? `Recording ${String(Math.floor(recordSeconds / 60)).padStart(1, "0")}:${String(recordSeconds % 60).padStart(2, "0")} — tap to stop` : "Tap to speak"}
@@ -1232,10 +1325,25 @@ export default function Ifatarot() {
             {notesList.length === 0 && <p style={{ color: SAGE, fontSize: 14 }}>Readings you save from a reading screen will collect here.</p>}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {notesList.map((n) => (
-                <button key={n.id} onClick={() => setActiveNote(n)} style={{ textAlign: "left", background: "none", border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: 14, cursor: "pointer", color: IVORY }}>
-                  <div style={{ fontFamily: "Fraunces, serif", color: GOLD, fontSize: 16, marginBottom: 4 }}>{n.title}</div>
-                  <div style={{ fontSize: 11, color: SAGE }}>{new Date(n.date).toLocaleDateString()} &middot; {n.dimKey} &middot; {n.modeLabel}</div>
-                </button>
+                <div key={n.id} style={{ border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: 14 }}>
+                  {confirmDeleteId === n.id ? (
+                    <div>
+                      <p style={{ fontSize: 13, color: IVORY, marginBottom: 10 }}>Delete "{n.title}" for good?</p>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <GhostButton style={{ flex: 1 }} onClick={() => deleteNote(n.id)}>Delete</GhostButton>
+                        <GhostButton style={{ flex: 1 }} onClick={() => setConfirmDeleteId(null)}>Cancel</GhostButton>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                      <button onClick={() => setActiveNote(n)} style={{ textAlign: "left", background: "none", border: "none", cursor: "pointer", color: IVORY, padding: 0, flex: 1 }}>
+                        <div style={{ fontFamily: "Fraunces, serif", color: GOLD, fontSize: 16, marginBottom: 4 }}>{n.title}</div>
+                        <div style={{ fontSize: 11, color: SAGE }}>{new Date(n.date).toLocaleDateString()} &middot; {n.dimKey} &middot; {n.modeLabel}</div>
+                      </button>
+                      <button onClick={() => setConfirmDeleteId(n.id)} style={{ background: "none", border: "none", color: SAGE, fontSize: 16, cursor: "pointer", padding: 0, lineHeight: 1 }}>&times;</button>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
             <BottomNav screen="notes" go={go} />
@@ -1247,7 +1355,17 @@ export default function Ifatarot() {
           return (
             <div>
               <Header title={note.title} onBack={() => setActiveNote(null)} />
-              <div style={{ fontSize: 12, color: SAGE, marginBottom: 16 }}>{new Date(note.date).toLocaleString()}</div>
+              <div style={{ fontSize: 12, color: SAGE, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{new Date(note.date).toLocaleString()}</span>
+                {confirmDeleteId === note.id ? (
+                  <span style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => deleteNote(note.id)} style={{ background: "none", border: "none", color: CAMWOOD, fontSize: 12, cursor: "pointer" }}>Confirm delete</button>
+                    <button onClick={() => setConfirmDeleteId(null)} style={{ background: "none", border: "none", color: SAGE, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                  </span>
+                ) : (
+                  <button onClick={() => setConfirmDeleteId(note.id)} style={{ background: "none", border: "none", color: SAGE, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>Delete note</button>
+                )}
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20 }}>
                 {note.entries.map((e, i) => e.type === "reading" ? (
                   <div key={i} style={{ border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: 14 }}>
@@ -1306,6 +1424,11 @@ export default function Ifatarot() {
               </Field>
             )}
 
+            <Field label="Tonight's sky">
+              <div style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(217,169,74,0.06)", border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: 12 }}>
+                {(() => { const moon = getMoonPhase(); return (<><MoonGlyph illumination={moon.illumination} waxing={moon.waxing} size={40} /><div><div style={{ fontSize: 14, color: IVORY, fontFamily: "Fraunces, serif" }}>{moon.name}</div><div style={{ fontSize: 11, color: SAGE }}>{moon.illumination}% illuminated</div></div></>); })()}
+              </div>
+            </Field>
             <Field label="Language depth"><div style={{ display: "flex", gap: 8 }}><PillButton active={draftProfile.jargon === "simple"} onClick={() => setDraftProfile({ ...draftProfile, jargon: "simple" })}>Simple, plain-spoken</PillButton><PillButton active={draftProfile.jargon === "esoteric"} onClick={() => setDraftProfile({ ...draftProfile, jargon: "esoteric" })}>Traditional, esoteric</PillButton></div></Field>
             <Field label="Length"><div style={{ display: "flex", gap: 8 }}><PillButton active={draftProfile.verbosity === "brief"} onClick={() => setDraftProfile({ ...draftProfile, verbosity: "brief" })}>Brief, critical only</PillButton><PillButton active={draftProfile.verbosity === "warm"} onClick={() => setDraftProfile({ ...draftProfile, verbosity: "warm" })}>Fuller, more wordy</PillButton></div></Field>
             <Field label="Tarot reversals"><PillButton active={draftProfile.tarotReversals} onClick={() => setDraftProfile({ ...draftProfile, tarotReversals: !draftProfile.tarotReversals })}>{draftProfile.tarotReversals ? "On" : "Off"}</PillButton></Field>
@@ -1356,6 +1479,13 @@ function StatsScreen({ events, onBack }) {
   readings.forEach((r) => { byDim[r.dimension] = (byDim[r.dimension] || 0) + 1; });
   let ifaCount = 0, tarotCount = 0;
   readings.forEach((r) => (r.traditions || []).forEach((t) => (t === "ifa" ? ifaCount++ : tarotCount++)));
+  const tarotCounts = {}, oduCounts = {};
+  readings.forEach((r) => (r.cardNames || []).forEach((c) => {
+    const bucket = c.tradition === "tarot" ? tarotCounts : oduCounts;
+    bucket[c.name] = (bucket[c.name] || 0) + 1;
+  }));
+  const topTarot = Object.entries(tarotCounts).sort((a, b) => b[1] - a[1])[0];
+  const topOdu = Object.entries(oduCounts).sort((a, b) => b[1] - a[1])[0];
   const days = [];
   for (let i = 6; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); const key = d.toISOString().slice(0, 10); days.push({ day: d.toLocaleDateString(undefined, { weekday: "short" }), count: readings.filter((r) => r.date.slice(0, 10) === key).length }); }
   const StatCard = ({ label, value }) => <div style={{ background: "rgba(243,234,216,0.05)", borderRadius: 10, padding: "14px 16px" }}><div style={{ fontSize: 12, color: SAGE, marginBottom: 4 }}>{label}</div><div style={{ fontFamily: "Fraunces, serif", fontSize: 22, color: GOLD }}>{value}</div></div>;
@@ -1368,6 +1498,8 @@ function StatsScreen({ events, onBack }) {
         <StatCard label="Strategist chats" value={strategist.length} />
         <StatCard label="Saved to notes" value={notes.length} />
         <StatCard label="Ifa vs Tarot draws" value={`${ifaCount} / ${tarotCount}`} />
+        <StatCard label="Most drawn Tarot card" value={topTarot ? `${topTarot[0]} (${topTarot[1]}×)` : "—"} />
+        <StatCard label="Most drawn odu" value={topOdu ? `${topOdu[0]} (${topOdu[1]}×)` : "—"} />
       </div>
       <Field label="Readings, last 7 days">
         <div style={{ height: 160 }}><ResponsiveContainer width="100%" height="100%"><BarChart data={days}><CartesianGrid stroke={HAIRLINE} vertical={false} /><XAxis dataKey="day" stroke={SAGE} fontSize={11} /><YAxis stroke={SAGE} fontSize={11} allowDecimals={false} /><Tooltip contentStyle={{ background: INDIGO, border: `1px solid ${HAIRLINE}`, color: IVORY }} /><Bar dataKey="count" fill={GOLD} radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div>
@@ -1375,7 +1507,7 @@ function StatsScreen({ events, onBack }) {
       <Field label="Most used depth">
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{Object.keys(DIMENSIONS).map((k) => <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span style={{ color: SAGE }}>{DIMENSIONS[k].label}</span><span style={{ color: IVORY }}>{byDim[k] || 0}</span></div>)}</div>
       </Field>
-      <p style={{ fontSize: 12, color: SAGE, marginTop: 8 }}>An app-wide engagement dashboard for you as the builder would aggregate this same event data across every user's device on a server — this per-device version is the individual half of that picture.</p>
+      <p style={{ fontSize: 12, color: SAGE, marginTop: 8 }}>An app-wide engagement dashboard for you as the builder would aggregate this same event data across every user's device on a server — this per-device version is the individual half of that picture. "Most drawn" only counts readings made after this update.</p>
     </div>
   );
 }
