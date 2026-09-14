@@ -29,7 +29,27 @@ const SUGGESTED_QUESTIONS = [
   "What is this relationship really showing me?",
   "What choice deserves my attention right now?",
   "What am I not seeing clearly?",
+  "What's the right timing for this?",
+  "What do I need to let go of?",
+  "What's really behind how I've been feeling?",
+  "Where is this path actually leading?",
+  "What's the lesson in what just happened?",
+  "What should I be paying closer attention to?",
+  "Is this the right direction for me?",
+  "What's standing between me and what I want?",
+  "What do I need to hear right now?",
+  "What pattern keeps showing up in my life?",
+  "What's worth being patient about?",
+  "What am I ready for, even if it doesn't feel like it?",
 ];
+function pickRandom(arr, n) {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, n);
+}
 
 /* ---------- Tarot deck (78) ---------- */
 const MAJORS = [
@@ -289,6 +309,8 @@ function getDeviceId() {
   return id;
 }
 async function callAgentMessagesFull(system, messages, opts) {
+  // Not subject to the artifact-preview's fixed-1000 constraint — this talks to your
+  // own Railway server, which forwards the real requested budget to Anthropic.
   const maxTokens = (opts && opts.maxTokens) || 1200;
   const res = await fetch("/api/generate", {
     method: "POST", headers: { "Content-Type": "application/json", "X-Device-Id": getDeviceId() },
@@ -481,6 +503,8 @@ export default function Ifatarot() {
   const [error, setError] = useState(null);
   const [readingFailed, setReadingFailed] = useState(false);
   const [revealedCount, setRevealedCount] = useState(0);
+  const [questionSuggestions, setQuestionSuggestions] = useState(() => pickRandom(SUGGESTED_QUESTIONS, 6));
+  const [homeSuggestions, setHomeSuggestions] = useState(() => pickRandom(SUGGESTED_QUESTIONS, 3));
   const [showVibe, setShowVibe] = useState(false);
   const [dimensionNotes, setDimensionNotes] = useState([]);
 
@@ -557,6 +581,11 @@ export default function Ifatarot() {
     timers.push(setTimeout(() => setShowVibe(true), total + 200));
     timers.push(setTimeout(() => setScreen("dim-reading"), total + 1200));
     return () => timers.forEach(clearTimeout);
+  }, [screen]);
+
+  useEffect(() => {
+    if (screen === "dim-question") setQuestionSuggestions(pickRandom(SUGGESTED_QUESTIONS, 6));
+    if (screen === "home") setHomeSuggestions(pickRandom(SUGGESTED_QUESTIONS, 3));
   }, [screen]);
 
   function creditGate() {
@@ -938,7 +967,7 @@ export default function Ifatarot() {
                   <textarea value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="What's on your mind?" style={{ width: "100%", minHeight: 64, boxSizing: "border-box", background: "rgba(243,234,216,0.05)", border: `1px solid ${HAIRLINE}`, borderRadius: 6, padding: 10, color: IVORY, fontSize: 14, fontFamily: "Karla, sans-serif", resize: "vertical", outline: "none", marginBottom: 8 }} />
                   {!question.trim() && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-                      {SUGGESTED_QUESTIONS.slice(0, 3).map((q) => <PillButton key={q} onClick={() => setQuestion(q)}>{q}</PillButton>)}
+                      {homeSuggestions.map((q) => <PillButton key={q} onClick={() => setQuestion(q)}>{q}</PillButton>)}
                     </div>
                   )}
                   <div style={{ display: "flex", gap: 8 }}>
@@ -1065,7 +1094,7 @@ export default function Ifatarot() {
               <div style={{ marginBottom: 20 }}>
                 <div style={{ fontSize: 11, color: SAGE, marginBottom: 8 }}>Not sure what to ask?</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {SUGGESTED_QUESTIONS.map((q) => <PillButton key={q} onClick={() => setQuestion(q)}>{q}</PillButton>)}
+                  {questionSuggestions.map((q) => <PillButton key={q} onClick={() => setQuestion(q)}>{q}</PillButton>)}
                 </div>
               </div>
             )}
