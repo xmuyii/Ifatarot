@@ -218,13 +218,41 @@ async function pushEvent(type, extra) {
 }
 
 /* ---------- dimension configs, renamed evocatively ---------- */
+function mkMode(key, title, labels) {
+  return { key, title, label: labels.join(", "), traditionMode: "single", positions: labels.map((l, i) => ({ key: `p${i + 1}`, label: l })) };
+}
+
 const DIMENSIONS = {
-  "1D": { label: "1D of thought", modes: [{ key: "single", title: "The Single Flame", label: "One card, one focus", traditionMode: "single", positions: [{ key: "focus", label: "Focus" }] }] },
+  "1D": {
+    label: "1D of thought",
+    modes: [
+      { key: "single", title: "The Single Flame", label: "One card, one focus", traditionMode: "single", positions: [{ key: "focus", label: "Focus" }] },
+      mkMode("unlabeled", "Unlabeled Reading", ["Card"]),
+      mkMode("cardOfDay", "Card of the Day", ["Card of the Day"]),
+      mkMode("weekAhead", "The Week Ahead", ["The Week Ahead"]),
+      mkMode("heart", "Matters of the Heart", ["Matters of the Heart"]),
+      mkMode("career", "Career Advice", ["Career Advice"]),
+      mkMode("yesno", "Yes or No", ["Yes or No"]),
+      mkMode("decision", "Make a Decision", ["Decision"]),
+      mkMode("needToKnow", "What I Need to Know", ["What I Need to Know"]),
+      mkMode("selfKnowledge", "Self Knowledge", ["Self Knowledge"]),
+    ],
+  },
   "2D": {
     label: "2D of thought",
     modes: [
       { key: "duality", title: "The Twin Paths", label: "Agreeable and disagreeable", traditionMode: "perPosition", positions: [{ key: "agreeable", label: "Agreeable" }, { key: "disagreeable", label: "Disagreeable" }] },
       { key: "polarity", title: "Sky and Root", label: "Spiritual above, physical below", traditionMode: "perPosition", positions: [{ key: "spiritual", label: "Spiritual" }, { key: "physical", label: "Physical" }] },
+      mkMode("unlabeled", "Unlabeled Reading", ["Card 1", "Card 2"]),
+      mkMode("cardOfDay", "Card of the Day", ["Card of the Day", "Clarifier"]),
+      mkMode("weekAhead", "The Week Ahead", ["Next Few Days", "After That"]),
+      mkMode("career", "Career Advice", ["Situation", "Advice"]),
+      mkMode("yesno", "Yes or No", ["Yes or No", "Clarifier"]),
+      mkMode("seekAdvice", "Seek Advice", ["Situation", "Advice"]),
+      mkMode("decision", "Make a Decision", ["Pros", "Cons"]),
+      mkMode("assess", "Assess a Situation", ["Situation", "Extra Info"]),
+      mkMode("problemSolving", "Problem Solving", ["Problem", "Solution"]),
+      mkMode("selfKnowledge", "Self Knowledge", ["Accept", "Release"]),
     ],
   },
   "3D": {
@@ -232,6 +260,35 @@ const DIMENSIONS = {
     modes: [
       { key: "timeline", title: "The River's Course", label: "Past, present, future", traditionMode: "single", positions: [{ key: "past", label: "Past" }, { key: "present", label: "Present" }, { key: "future", label: "Future" }] },
       { key: "forces", title: "The Threshold", label: "What blocks, what centers, what guides", traditionMode: "single", positions: [{ key: "blocking", label: "What's blocking" }, { key: "core", label: "Core focus" }, { key: "guiding", label: "What's guiding" }] },
+      mkMode("unlabeled", "Unlabeled Reading", ["Card 1", "Card 2", "Card 3"]),
+      mkMode("cardOfDay", "Card of the Day", ["Card of the Day", "Lesson", "Gift"]),
+      mkMode("weekAhead", "The Week Ahead", ["Personal", "Work", "Love"]),
+      mkMode("heart", "Matters of the Heart", ["You", "Them", "Where It's Going"]),
+      mkMode("relationshipAdvice", "Relationship Advice", ["Situation", "Lesson", "Advice"]),
+      mkMode("yesno", "Yes or No", ["Yes or No", "Pros", "Cons"]),
+      mkMode("seekAdvice", "Seek Advice", ["Situation", "Advice", "Outcome"]),
+      mkMode("decision", "Make a Decision", ["Problem", "Cause", "Do This"]),
+      mkMode("evaluateOptions", "Evaluate Options", ["Option 1", "Option 2", "Advice"]),
+      mkMode("assess", "Assess a Situation", ["Situation", "Extra Info", "Advice"]),
+      mkMode("problemSolving", "Problem Solving", ["Problem", "Cause", "Solution"]),
+      mkMode("selfKnowledge", "Self Knowledge", ["My Power", "My Flaw", "My Passion"]),
+      mkMode("findPath", "Find the Path", ["The Illusion", "What Is Real", "My Next Action"]),
+      mkMode("perspective", "Gain Perspective", ["Overview", "Problem", "Action"]),
+      mkMode("serenity", "Achieve Serenity", ["Cannot Change", "Can Change", "What to Know"]),
+      mkMode("balance", "Achieve Balance", ["Mind", "Body", "Soul"]),
+    ],
+  },
+  "4D": {
+    label: "4D of thought",
+    modes: [
+      mkMode("unlabeled", "Unlabeled Reading", ["Card 1", "Card 2", "Card 3", "Card 4"]),
+      mkMode("cardOfDay", "Card of the Day", ["Focus", "Action", "Challenge", "Solution"]),
+      mkMode("weekAhead", "The Week Ahead", ["Personal", "Work", "Love", "Lesson"]),
+      mkMode("timeline", "Past, Present, Future", ["Past", "Present", "Future", "Advice"]),
+      mkMode("whatsNext", "What's Next", ["Situation", "Next", "Factors", "Outcome"]),
+      mkMode("needToKnow", "What I Need to Know", ["You", "Known", "Unknown", "Action"]),
+      mkMode("wantsNeeds", "Wants and Needs", ["Have", "Want", "Need", "Advice"]),
+      mkMode("selfKnowledge", "Self Knowledge", ["Physical", "Mental", "Emotional", "Spiritual"]),
     ],
   },
   "7D": {
@@ -240,6 +297,23 @@ const DIMENSIONS = {
       { key: "star", title: "The Crown of Seven", label: "A core with six around it", traditionMode: "single", positions: [{ key: "core", label: "Core" }, { key: "p1", label: "Past" }, { key: "p2", label: "Present" }, { key: "p3", label: "Future" }, { key: "p4", label: "Challenge" }, { key: "p5", label: "Guidance" }, { key: "p6", label: "Outcome" }] },
       { key: "sides", title: "The Twin Pillars", label: "A core flanked three and three", traditionMode: "single", positions: [{ key: "core", label: "Core" }, { key: "l1", label: "Left 1" }, { key: "l2", label: "Left 2" }, { key: "l3", label: "Left 3" }, { key: "r1", label: "Right 1" }, { key: "r2", label: "Right 2" }, { key: "r3", label: "Right 3" }] },
       { key: "split", title: "Heaven's Three, Earth's Four", label: "Three spiritual, four physical", traditionMode: "perGroup", groups: [{ key: "spiritual", label: "Spiritual (3 cards)", positionKeys: ["s1", "s2", "s3"] }, { key: "physical", label: "Physical (4 cards)", positionKeys: ["b1", "b2", "b3", "b4"] }], positions: [{ key: "s1", label: "Spiritual 1" }, { key: "s2", label: "Spiritual 2" }, { key: "s3", label: "Spiritual 3" }, { key: "b1", label: "Physical 1" }, { key: "b2", label: "Physical 2" }, { key: "b3", label: "Physical 3" }, { key: "b4", label: "Physical 4" }] },
+      mkMode("unlabeled", "Unlabeled Reading", ["Card 1", "Card 2", "Card 3", "Card 4", "Card 5", "Card 6", "Card 7"]),
+      mkMode("cardOfDay", "Card of the Day", ["Morning", "Midday", "Afternoon", "Evening", "Challenge", "Gift", "Focus"]),
+      mkMode("weekAhead", "The Week Ahead", ["Personal", "Work", "Love", "Health", "Challenge", "Opportunity", "Lesson"]),
+      mkMode("timeline", "Past, Present, Future", ["Distant Past", "Recent Past", "Present", "Near Future", "Distant Future", "Hopes", "Fears"]),
+      mkMode("heart", "Matters of the Heart", ["You", "Them", "Connection", "Past", "Present", "Future", "Advice"]),
+      mkMode("relationshipAdvice", "Relationship Advice", ["You", "Them", "Foundation", "Challenge", "Strength", "Lesson", "Advice"]),
+      mkMode("yesno", "Yes or No", ["Yes or No", "Why", "Pros", "Cons", "Timing", "Clarifier", "Advice"]),
+      mkMode("seekAdvice", "Seek Advice", ["Situation", "Root Cause", "Hidden Factor", "Advice", "Action", "Outcome", "Lesson"]),
+      mkMode("decision", "Make a Decision", ["Problem", "Option A", "Option B", "Pros", "Cons", "Guidance", "Outcome"]),
+      mkMode("evaluateOptions", "Evaluate Options", ["Option 1", "Option 1 Outcome", "Option 2", "Option 2 Outcome", "Shared Factor", "Advice", "Final Guidance"]),
+      mkMode("assess", "Assess a Situation", ["Situation", "Root", "Hidden Factor", "Strength", "Weakness", "Advice", "Outcome"]),
+      mkMode("problemSolving", "Problem Solving", ["Problem", "Cause", "Hidden Factor", "Obstacle", "Resource", "Solution", "Outcome"]),
+      mkMode("selfKnowledge", "Self Knowledge", ["Spiritual", "Mental", "Emotional", "Physical", "Psychological", "Power", "Path"]),
+      mkMode("findPath", "Find the Path", ["The Illusion", "What Is Real", "Obstacle", "Support", "Guidance", "Next Action", "Destination"]),
+      mkMode("perspective", "Gain Perspective", ["Overview", "Root", "Blind Spot", "Strength", "Challenge", "Advice", "Action"]),
+      mkMode("serenity", "Achieve Serenity", ["Cannot Change", "Can Change", "Root of Unrest", "Support", "Practice", "Reminder", "What to Know"]),
+      mkMode("balance", "Achieve Balance", ["Mind", "Body", "Soul", "Work", "Relationships", "Rest", "Center"]),
     ],
   },
   "9D": {
@@ -247,6 +321,22 @@ const DIMENSIONS = {
     modes: [
       { key: "dimensions", title: "The Nine Realms", label: "Nine planes of your life, one each", traditionMode: "single", positions: [{ key: "spiritual", label: "Spiritual" }, { key: "mental", label: "Mental" }, { key: "emotional", label: "Emotional" }, { key: "physical", label: "Physical" }, { key: "psychological", label: "Psychological" }, { key: "past", label: "Past" }, { key: "present", label: "Present" }, { key: "future", label: "Future" }, { key: "path", label: "Path forward" }] },
       { key: "grid", title: "The Nine Chambers", label: "A three-by-three field", traditionMode: "single", positions: [{ key: "t1", label: "Top left" }, { key: "t2", label: "Top center" }, { key: "t3", label: "Top right" }, { key: "m1", label: "Mid left" }, { key: "m2", label: "Mid center" }, { key: "m3", label: "Mid right" }, { key: "b1", label: "Bottom left" }, { key: "b2", label: "Bottom center" }, { key: "b3", label: "Bottom right" }] },
+      mkMode("unlabeled", "Unlabeled Reading", ["Card 1", "Card 2", "Card 3", "Card 4", "Card 5", "Card 6", "Card 7", "Card 8", "Card 9"]),
+      mkMode("cardOfDay", "Card of the Day", ["Dawn", "Morning", "Midday", "Afternoon", "Dusk", "Evening", "Night", "Challenge", "Gift"]),
+      mkMode("weekAhead", "The Week Ahead", ["Personal", "Work", "Love", "Health", "Money", "Challenge", "Opportunity", "Lesson", "Outlook"]),
+      mkMode("timeline", "Past, Present, Future", ["Far Past", "Past", "Recent Past", "Present", "Immediate Future", "Near Future", "Far Future", "Hopes", "Fears"]),
+      mkMode("heart", "Matters of the Heart", ["You", "Them", "Connection", "Past", "Present", "Future", "Challenge", "Gift", "Advice"]),
+      mkMode("relationshipAdvice", "Relationship Advice", ["You", "Them", "Foundation", "Communication", "Challenge", "Strength", "Lesson", "Growth", "Advice"]),
+      mkMode("yesno", "Yes or No", ["Yes or No", "Why", "Pros", "Cons", "Hidden Factor", "Timing", "Risk", "Clarifier", "Advice"]),
+      mkMode("seekAdvice", "Seek Advice", ["Situation", "Root Cause", "Hidden Factor", "Emotion", "Mind", "Body", "Advice", "Action", "Outcome"]),
+      mkMode("decision", "Make a Decision", ["Problem", "Option A", "Option A Outcome", "Option B", "Option B Outcome", "Values", "Fear", "Guidance", "Final Word"]),
+      mkMode("evaluateOptions", "Evaluate Options", ["Option 1", "Option 1 Outcome", "Option 2", "Option 2 Outcome", "Option 3", "Option 3 Outcome", "Shared Factor", "Heart's Truth", "Advice"]),
+      mkMode("assess", "Assess a Situation", ["Situation", "Root", "Hidden Factor", "Strength", "Weakness", "Opportunity", "Threat", "Advice", "Outcome"]),
+      mkMode("problemSolving", "Problem Solving", ["Problem", "Root Cause", "Hidden Factor", "Obstacle", "Resource", "Ally", "Action", "Solution", "Outcome"]),
+      mkMode("findPath", "Find the Path", ["The Illusion", "What Is Real", "Obstacle", "Support", "Ally", "Guidance", "Risk", "Next Action", "Destination"]),
+      mkMode("perspective", "Gain Perspective", ["Overview", "Root", "Blind Spot", "Strength", "Weakness", "Challenge", "Opportunity", "Advice", "Action"]),
+      mkMode("serenity", "Achieve Serenity", ["Cannot Change", "Can Change", "Root of Unrest", "Support", "Practice", "Obstacle", "Reminder", "Grace", "What to Know"]),
+      mkMode("balance", "Achieve Balance", ["Mind", "Body", "Soul", "Work", "Relationships", "Rest", "Play", "Purpose", "Center"]),
     ],
   },
 };
@@ -314,7 +404,7 @@ async function callAgentMessagesFull(system, messages, opts) {
   const maxTokens = (opts && opts.maxTokens) || 1200;
   const res = await fetch("/api/generate", {
     method: "POST", headers: { "Content-Type": "application/json", "X-Device-Id": getDeviceId() },
-    body: JSON.stringify({ max_tokens: maxTokens, system, messages, internal: !!(opts && opts.internal) }),
+    body: JSON.stringify({ max_tokens: maxTokens, system, messages, internal: !!(opts && opts.internal), meta: (opts && opts.meta) || undefined }),
   });
   const data = await res.json();
   if (res.status === 429) throw new Error(data.error || "Rate limited");
@@ -524,6 +614,8 @@ export default function Ifatarot() {
   const [residentMsg, setResidentMsg] = useState("");
 
   const [events, setEvents] = useState([]);
+  const [adminInput, setAdminInput] = useState("");
+  const [adminStats, setAdminStats] = useState(null);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const recogRef = useRef(null);
   const timerRef = useRef(null);
@@ -629,6 +721,16 @@ export default function Ifatarot() {
     if (activeNote && activeNote.id === id) setActiveNote(null);
   }
   async function loadEvents() { const raw = await safeGet("ifatarot:events"); setEvents(raw ? JSON.parse(raw) : []); }
+  async function tryAdminUnlock(phrase) {
+    if (!phrase) return;
+    try {
+      const res = await fetch("/api/admin/stats", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ passphrase: phrase }) });
+      if (!res.ok) return; // wrong phrase, or not deployed with a server — fail silently either way
+      const data = await res.json();
+      setAdminStats(data);
+      setScreen("admin-stats");
+    } catch (e) { /* silent — this input never shows an error, by design */ }
+  }
   async function loadDimensionNotes(key) { const raw = await safeGet("ifatarot:notes-list"); const list = raw ? JSON.parse(raw) : []; setDimensionNotes(list.filter((n) => n.dimKey === key)); }
 
   function go(key) {
@@ -767,9 +869,10 @@ export default function Ifatarot() {
       const user = buildMultiPrompt(useDimKey, useMode.key, DIMENSIONS[useDimKey].label, useMode.title, positions, useQuestion);
       const cardCount = positions.flatMap((p) => p.cards).length;
       const maxTokens = maxTokensForReading(cardCount, profile.verbosity);
-      let { text } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens });
+      const meta = { type: "reading", dimension: useDimKey, mode: useMode.key, traditions: positions.flatMap((p) => p.cards.map((c) => c.tradition)), cardNames: positions.flatMap((p) => p.cards.map((c) => ({ tradition: c.tradition, name: c.name }))) };
+      let { text } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens, meta });
       if (!text || !text.trim()) {
-        ({ text } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens: Math.min(4096, maxTokens + 800) }));
+        ({ text } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens: Math.min(4096, maxTokens + 800), meta }));
       }
       if (!text || !text.trim()) {
         setReading("Your strategist didn't come back with a reading that time — no consultation was used.");
@@ -807,7 +910,7 @@ export default function Ifatarot() {
     try {
       const system = buildSystemPrompt(profile) + "\n\nThis is a live back-and-forth conversation before any cards are drawn. Build on everything said so far, ask a clarifying question if it would sharpen the question, and work toward a clear synthesis of what's really being asked. Only speak to their question and Ifatarot — no generic advice. Keep replies to a few sentences unless real depth is needed.";
       const apiMessages = nextLog.map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
-      let { text: answer } = await callAgentMessagesFull(system, apiMessages, { maxTokens: 1200 });
+      let { text: answer } = await callAgentMessagesFull(system, apiMessages, { maxTokens: 1200, meta: { type: "strategist" } });
       if (!answer || !answer.trim()) {
         setStrategistLog([...nextLog, { role: "agent", text: "That didn't come through clearly — no consultation was used. Try sending it again." }]);
         setStrategistLoading(false);
@@ -1050,7 +1153,7 @@ export default function Ifatarot() {
           <div style={{ display: "flex", gap: 12 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <Header title={dimCfg.label} onBack={() => setScreen("begin")} />
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 480, overflowY: "auto", paddingRight: 4 }}>
                 {dimCfg.modes.map((m) => (
                   <button key={m.key} onClick={() => { setMode(m); setScreen("dim-tradition"); }} style={{ textAlign: "left", background: "rgba(243,234,216,0.03)", border: `1px solid ${HAIRLINE}`, borderRadius: 8, padding: 14, cursor: "pointer" }}>
                     <div style={{ fontFamily: "Fraunces, serif", color: GOLD, fontSize: 16 }}>{m.title}</div>
@@ -1490,16 +1593,28 @@ export default function Ifatarot() {
             <PrimaryButton onClick={saveSettings}>Save changes</PrimaryButton>
             <GhostButton style={{ width: "100%", boxSizing: "border-box", marginTop: 12 }} onClick={() => { loadEvents(); setScreen("stats"); }}>View your statistics</GhostButton>
             <GhostButton style={{ width: "100%", boxSizing: "border-box", marginTop: 12 }} onClick={() => { setShowInstallCard(true); go("home"); }}>How to add this to your home screen</GhostButton>
+            <input
+              value={adminInput}
+              onChange={(e) => setAdminInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { tryAdminUnlock(adminInput); setAdminInput(""); } }}
+              onBlur={() => setAdminInput("")}
+              placeholder="Ifatarot v1.0.0"
+              style={{ width: "100%", boxSizing: "border-box", background: "transparent", border: "none", color: SAGE, fontSize: 10, textAlign: "center", marginTop: 40, outline: "none", opacity: 0.35 }}
+            />
           </div>
         )}
 
         {screen === "stats" && <StatsScreen events={events} onBack={() => setScreen("settings")} />}
+        {screen === "admin-stats" && <AdminStatsScreen stats={adminStats} onBack={() => setScreen("settings")} />}
 
       </div>
     </div>
   );
 }
 
+function StatCard({ label, value }) {
+  return <div style={{ background: "rgba(243,234,216,0.05)", borderRadius: 10, padding: "14px 16px" }}><div style={{ fontSize: 12, color: SAGE, marginBottom: 4 }}>{label}</div><div style={{ fontFamily: "Fraunces, serif", fontSize: 22, color: GOLD }}>{value}</div></div>;
+}
 function StatsScreen({ events, onBack }) {
   const readings = events.filter((e) => e.type === "reading");
   const notes = events.filter((e) => e.type === "note");
@@ -1517,7 +1632,6 @@ function StatsScreen({ events, onBack }) {
   const topOdu = Object.entries(oduCounts).sort((a, b) => b[1] - a[1])[0];
   const days = [];
   for (let i = 6; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); const key = d.toISOString().slice(0, 10); days.push({ day: d.toLocaleDateString(undefined, { weekday: "short" }), count: readings.filter((r) => r.date.slice(0, 10) === key).length }); }
-  const StatCard = ({ label, value }) => <div style={{ background: "rgba(243,234,216,0.05)", borderRadius: 10, padding: "14px 16px" }}><div style={{ fontSize: 12, color: SAGE, marginBottom: 4 }}>{label}</div><div style={{ fontFamily: "Fraunces, serif", fontSize: 22, color: GOLD }}>{value}</div></div>;
   return (
     <div>
       <Header title="Your statistics" onBack={onBack} />
@@ -1536,7 +1650,34 @@ function StatsScreen({ events, onBack }) {
       <Field label="Most used depth">
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{Object.keys(DIMENSIONS).map((k) => <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span style={{ color: SAGE }}>{DIMENSIONS[k].label}</span><span style={{ color: IVORY }}>{byDim[k] || 0}</span></div>)}</div>
       </Field>
-      <p style={{ fontSize: 12, color: SAGE, marginTop: 8 }}>An app-wide engagement dashboard for you as the builder would aggregate this same event data across every user's device on a server — this per-device version is the individual half of that picture. "Most drawn" only counts readings made after this update.</p>
+    </div>
+  );
+}
+
+function AdminStatsScreen({ stats, onBack }) {
+  if (!stats) return null;
+  return (
+    <div>
+      <Header title="Admin overview" onBack={onBack} />
+      <p style={{ fontSize: 12, color: SAGE, marginBottom: 16 }}>Aggregate usage across every device that has used this app, tracked server-side.</p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 24 }}>
+        <StatCard label="Devices / sessions" value={stats.totalDevices} />
+        <StatCard label="Active last 24h" value={stats.activeLast24h} />
+        <StatCard label="Active last 7 days" value={stats.activeLast7d} />
+        <StatCard label="Consultations used" value={stats.totalConsultations} />
+        <StatCard label="Readings drawn" value={stats.readingsCount} />
+        <StatCard label="Strategist chats" value={stats.strategistCount} />
+        <StatCard label="Ifa vs Tarot draws" value={`${stats.ifaCount} / ${stats.tarotCount}`} />
+        <StatCard label="Most drawn Tarot card" value={stats.topTarot ? `${stats.topTarot[0]} (${stats.topTarot[1]}×)` : "—"} />
+        <StatCard label="Most drawn odu" value={stats.topOdu ? `${stats.topOdu[0]} (${stats.topOdu[1]}×)` : "—"} />
+      </div>
+      <Field label="Readings, all devices, last 7 days">
+        <div style={{ height: 160 }}><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.days}><CartesianGrid stroke={HAIRLINE} vertical={false} /><XAxis dataKey="day" stroke={SAGE} fontSize={11} /><YAxis stroke={SAGE} fontSize={11} allowDecimals={false} /><Tooltip contentStyle={{ background: INDIGO, border: `1px solid ${HAIRLINE}`, color: IVORY }} /><Bar dataKey="count" fill={GOLD} radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div>
+      </Field>
+      <Field label="Most used depth, all devices">
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{Object.keys(DIMENSIONS).map((k) => <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span style={{ color: SAGE }}>{DIMENSIONS[k].label}</span><span style={{ color: IVORY }}>{stats.byDim[k] || 0}</span></div>)}</div>
+      </Field>
+      <p style={{ fontSize: 12, color: SAGE, marginTop: 8 }}>This lives in server memory and resets if the service restarts — durable long-term storage (Postgres/Redis) is a separate upgrade once this matters for real.</p>
     </div>
   );
 }

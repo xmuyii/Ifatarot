@@ -18,7 +18,8 @@ const deviceState = new Map();
 function getState(deviceId) {
   const now = Date.now();
   let s = deviceState.get(deviceId);
-  if (!s) { s = { credits: CREDIT_MAX, lastRefillAt: now }; deviceState.set(deviceId, s); }
+  if (!s) { s = { credits: CREDIT_MAX, lastRefillAt: now, firstSeenAt: now, lastSeenAt: now }; deviceState.set(deviceId, s); }
+  s.lastSeenAt = now;
   const elapsedHours = (now - s.lastRefillAt) / 3600000;
   const toAdd = Math.floor(elapsedHours / CREDIT_REFILL_HOURS);
   if (toAdd > 0) {
@@ -33,9 +34,85 @@ function formatWait(hours) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+// ---- server-side event log, for the admin overview ----
+// Only real, billable events land here (see the hasText/!internal check below) — same
+// "never log a failed attempt" principle as the credit system itself.
+const MAX_EVENTS = 10000;
+const serverEvents = [];
+function logEvent(deviceId, meta) {
+  if (!meta || !meta.type) return;
+  serverEvents.push({ deviceId, date: new Date().toISOString(), ...meta });
+  if (serverEvents.length > MAX_EVENTS) serverEvents.splice(0, serverEvents.length - MAX_EVENTS);
+}
+
+// ---- lightweight brute-force protection for the admin endpoint ----
+const adminAttempts = new Map();
+function adminRateLimitOk(ip) {
+  const now = Date.now();
+  let a = adminAttempts.get(ip);
+  if (!a || now - a.windowStart > 15 * 60000) { a = { count: 0, windowStart: now }; adminAttempts.set(ip, a); }
+  a.count += 1;
+  return a.count <= 10;
+}
+
+/* ============================================================
+   AI PROVIDER LAYER
+   ------------------------------------------------------------
+   Everything below normalizes whichever provider is chosen into
+   ONE shape: { content: [{ type: "text", text }], stop_reason }.
+   That's Anthropic's native shape — the frontend already expects
+   it, so adding a provider here never requires a frontend change.
+
+   Switch providers by setting AI_PROVIDER in Railway's environment
+   variables — no code edits, no redeploy of the frontend:
+     AI_PROVIDER=anthropic   (default) — needs ANTHROPIC_API_KEY
+     AI_PROVIDER=deepseek                — needs DEEPSEEK_API_KEY
+   ============================================================ */
+
+const PROVIDERS = {
+  anthropic: {
+    apiKeyEnv: "ANTHROPIC_API_KEY",
+    model: process.env.ANTHROPIC_MODEL || "claude-sonnet-5",
+    async call(system, messages, maxTokens, apiKey) {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+        // Check https://docs.claude.com/en/docs/about-claude/models if the model string ever changes.
+        body: JSON.stringify({ model: this.model, max_tokens: maxTokens, system, messages }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: data.error?.message || "Anthropic API error" };
+      return { ok: true, content: data.content || [], stop_reason: data.stop_reason };
+    },
+  },
+  deepseek: {
+    apiKeyEnv: "DEEPSEEK_API_KEY",
+    model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+    async call(system, messages, maxTokens, apiKey) {
+      // DeepSeek speaks the OpenAI-compatible chat/completions shape: the system
+      // prompt is just another message, not a separate top-level field.
+      const dsMessages = [{ role: "system", content: system }, ...messages];
+      const res = await fetch("https://api.deepseek.com/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: this.model, max_tokens: maxTokens, messages: dsMessages }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: data.error?.message || "DeepSeek API error" };
+      const choice = (data.choices || [])[0];
+      const text = choice?.message?.content || "";
+      return {
+        ok: true,
+        content: text ? [{ type: "text", text }] : [],
+        stop_reason: choice?.finish_reason === "length" ? "max_tokens" : choice?.finish_reason,
+      };
+    },
+  },
+};
+
 app.post("/api/generate", async (req, res) => {
   const deviceId = req.headers["x-device-id"] || req.ip || "anon";
-  const { system, messages, max_tokens, internal } = req.body || {};
+  const { system, messages, max_tokens, internal, meta } = req.body || {};
   if (!messages) { res.status(400).json({ error: "Missing messages." }); return; }
 
   const state = getState(deviceId);
@@ -47,32 +124,67 @@ app.post("/api/generate", async (req, res) => {
     return;
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) { res.status(500).json({ error: "ANTHROPIC_API_KEY is not set on the server." }); return; }
+  const providerName = (process.env.AI_PROVIDER || "anthropic").toLowerCase();
+  const provider = PROVIDERS[providerName];
+  if (!provider) { res.status(500).json({ error: `Unknown AI_PROVIDER "${providerName}" — expected "anthropic" or "deepseek".` }); return; }
+  const apiKey = process.env[provider.apiKeyEnv];
+  if (!apiKey) { res.status(500).json({ error: `${provider.apiKeyEnv} is not set on the server.` }); return; }
 
   try {
-    const upstream = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        // Check https://docs.claude.com/en/docs/about-claude/models if this ever stops working.
-        model: "claude-sonnet-5",
-        max_tokens: max_tokens || 1200,
-        system,
-        messages,
-      }),
-    });
-
-    const data = await upstream.json();
-    if (!upstream.ok) { res.status(upstream.status).json({ error: data.error?.message || "Anthropic API error" }); return; }
-    // Only spend a credit on genuinely meaningful content — an empty or failed
-    // response should never cost the seeker a consultation.
-    const hasText = (data.content || []).some((b) => b.text && b.text.trim());
-    if (!internal && hasText) state.credits -= 1;
-    res.status(200).json(data);
+    const result = await provider.call(system, messages, max_tokens || 1200, apiKey);
+    if (!result.ok) { res.status(502).json({ error: result.error }); return; }
+    // Only spend a credit — and only log an event — on genuinely meaningful content.
+    // An empty or failed response should never cost the seeker a consultation, and
+    // shouldn't pollute the admin stats either.
+    const hasText = result.content.some((b) => b.text && b.text.trim());
+    if (!internal && hasText) {
+      state.credits -= 1;
+      logEvent(deviceId, meta);
+    }
+    res.status(200).json({ content: result.content, stop_reason: result.stop_reason });
   } catch (e) {
-    res.status(500).json({ error: "Failed to reach Claude." });
+    res.status(500).json({ error: `Failed to reach ${providerName}.` });
   }
+});
+
+app.post("/api/admin/stats", (req, res) => {
+  const ip = req.ip || "unknown";
+  if (!adminRateLimitOk(ip)) { res.status(429).json({ error: "Too many attempts." }); return; }
+  const real = process.env.ADMIN_PASSPHRASE;
+  const { passphrase } = req.body || {};
+  if (!real || passphrase !== real) { res.status(403).json({ error: "Not authorized." }); return; }
+
+  const now = Date.now();
+  const devices = [...deviceState.values()];
+  const readings = serverEvents.filter((e) => e.type === "reading");
+  const strategistMsgs = serverEvents.filter((e) => e.type === "strategist");
+  const byDim = {};
+  readings.forEach((r) => { byDim[r.dimension] = (byDim[r.dimension] || 0) + 1; });
+  let ifaCount = 0, tarotCount = 0;
+  const tarotCounts = {}, oduCounts = {};
+  readings.forEach((r) => (r.traditions || []).forEach((t) => (t === "ifa" ? ifaCount++ : tarotCount++)));
+  readings.forEach((r) => (r.cardNames || []).forEach((c) => {
+    const bucket = c.tradition === "tarot" ? tarotCounts : oduCounts;
+    bucket[c.name] = (bucket[c.name] || 0) + 1;
+  }));
+  const topTarot = Object.entries(tarotCounts).sort((a, b) => b[1] - a[1])[0] || null;
+  const topOdu = Object.entries(oduCounts).sort((a, b) => b[1] - a[1])[0] || null;
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now - i * 86400000);
+    const key = d.toISOString().slice(0, 10);
+    days.push({ day: d.toLocaleDateString(undefined, { weekday: "short" }), count: serverEvents.filter((e) => e.date.slice(0, 10) === key).length });
+  }
+
+  res.status(200).json({
+    totalDevices: devices.length,
+    activeLast24h: devices.filter((d) => now - d.lastSeenAt < 86400000).length,
+    activeLast7d: devices.filter((d) => now - d.lastSeenAt < 7 * 86400000).length,
+    totalConsultations: serverEvents.length,
+    readingsCount: readings.length,
+    strategistCount: strategistMsgs.length,
+    ifaCount, tarotCount, topTarot, topOdu, byDim, days,
+  });
 });
 
 // serve the built frontend
@@ -82,4 +194,4 @@ app.get("*", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Ifatarot server listening on port ${PORT}`));
+app.listen(PORT, () => console.log(`Ifatarot server listening on port ${PORT} (AI provider: ${process.env.AI_PROVIDER || "anthropic"})`));
