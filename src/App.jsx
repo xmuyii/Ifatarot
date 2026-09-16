@@ -216,6 +216,13 @@ async function pushEvent(type, extra) {
     await window.storage.set("ifatarot:events", JSON.stringify(list.slice(-500)));
   } catch (e) {}
 }
+function getDeviceId() {
+  try {
+    let id = localStorage.getItem("ifatarot:device-id");
+    if (!id) { id = "dev-" + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("ifatarot:device-id", id); }
+    return id;
+  } catch (e) { return "dev-unknown"; } // localStorage can be unavailable in some sandboxed previews
+}
 
 /* ---------- dimension configs, renamed evocatively ---------- */
 function mkMode(key, title, labels) {
@@ -393,11 +400,6 @@ function buildMultiPrompt(dimKey, modeKey, dimLabel, modeTitle, resolved, questi
   if (oduConnections.length) extra += `\n\nOdu connections detected across this spread — these shared roots are meaningful, not coincidence, weave them into your reading where it serves the question: ${oduConnections.join(" ")}`;
   return `This is a ${dimLabel} reading, laid out as "${modeTitle}". Positions and what was drawn:\n${lines.join("\n")}\n\nThe seeker's question: "${question}"${extra}\n\nAddress each position by its label, in order, then close with a short synthesis and one concrete next step. ${lengthGuidance}`;
 }
-function getDeviceId() {
-  let id = localStorage.getItem("ifatarot:device-id");
-  if (!id) { id = "dev-" + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("ifatarot:device-id", id); }
-  return id;
-}
 async function callAgentMessagesFull(system, messages, opts) {
   // Not subject to the artifact-preview's fixed-1000 constraint — this talks to your
   // own Railway server, which forwards the real requested budget to Anthropic.
@@ -421,8 +423,8 @@ async function callAgent(system, user, opts) { return callAgentMessages(system, 
 /* how many tokens a reading needs scales with how many cards it has to address —
    a 9D spread cut short mid-sentence is the "gets cut off" bug; this fixes the cause */
 function maxTokensForReading(positionCount, verbosity) {
-  const perPosition = verbosity === "brief" ? 150 : 280;
-  return Math.max(1000, Math.min(4096, 500 + positionCount * perPosition));
+  const perPosition = verbosity === "brief" ? 180 : 320;
+  return Math.max(1000, Math.min(8192, 700 + positionCount * perPosition));
 }
 
 /* Simulates a live typewriter reveal of text we already have in hand. This gives the
@@ -616,6 +618,7 @@ export default function Ifatarot() {
   const [events, setEvents] = useState([]);
   const [adminInput, setAdminInput] = useState("");
   const [adminStats, setAdminStats] = useState(null);
+  const [isAdminDevice, setIsAdminDevice] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const recogRef = useRef(null);
   const timerRef = useRef(null);
@@ -635,6 +638,8 @@ export default function Ifatarot() {
         setProfile(parsed); setDraftProfile(parsed); setOnboarded(true);
         try { await window.storage.set("ifatarot:profile", JSON.stringify(parsed)); } catch (e) {}
       }
+      const admin = await safeGet("ifatarot:is-admin");
+      if (admin === "1") setIsAdminDevice(true);
     })();
 
     const standalone = window.matchMedia && window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
@@ -681,11 +686,13 @@ export default function Ifatarot() {
   }, [screen]);
 
   function creditGate() {
+    if (isAdminDevice) return true;
     const c = computeCredits(profile);
     if (c.credits < 1) { setError(`You're out of consultations for now — the next one unlocks in about ${formatWait(c.hoursUntilNext)}.`); return false; }
     return true;
   }
   function strategistGate() {
+    if (isAdminDevice) return true;
     const r = isStrategistResting(profile);
     if (r.resting) { setError(`${profile.agentName || "Your strategist"} is resting right now — back in about ${formatMinutes(r.untilMin)}.`); return false; }
     return true;
@@ -724,10 +731,12 @@ export default function Ifatarot() {
   async function tryAdminUnlock(phrase) {
     if (!phrase) return;
     try {
-      const res = await fetch("/api/admin/stats", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ passphrase: phrase }) });
+      const res = await fetch("/api/admin/stats", { method: "POST", headers: { "Content-Type": "application/json", "X-Device-Id": getDeviceId() }, body: JSON.stringify({ passphrase: phrase }) });
       if (!res.ok) return; // wrong phrase, or not deployed with a server — fail silently either way
       const data = await res.json();
       setAdminStats(data);
+      setIsAdminDevice(true);
+      try { await window.storage.set("ifatarot:is-admin", "1"); } catch (e) {}
       setScreen("admin-stats");
     } catch (e) { /* silent — this input never shows an error, by design */ }
   }
@@ -870,9 +879,9 @@ export default function Ifatarot() {
       const cardCount = positions.flatMap((p) => p.cards).length;
       const maxTokens = maxTokensForReading(cardCount, profile.verbosity);
       const meta = { type: "reading", dimension: useDimKey, mode: useMode.key, traditions: positions.flatMap((p) => p.cards.map((c) => c.tradition)), cardNames: positions.flatMap((p) => p.cards.map((c) => ({ tradition: c.tradition, name: c.name }))) };
-      let { text } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens, meta });
-      if (!text || !text.trim()) {
-        ({ text } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens: Math.min(4096, maxTokens + 800), meta }));
+      let { text, truncated } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens, meta });
+      if ((!text || !text.trim()) || truncated) {
+        ({ text, truncated } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens: Math.min(8192, maxTokens + 1500), meta }));
       }
       if (!text || !text.trim()) {
         setReading("Your strategist didn't come back with a reading that time — no consultation was used.");
@@ -913,7 +922,10 @@ export default function Ifatarot() {
     try {
       const system = buildSystemPrompt(profile) + "\n\nThis is a live back-and-forth conversation before any cards are drawn. Build on everything said so far, ask a clarifying question if it would sharpen the question, and work toward a clear synthesis of what's really being asked. Only speak to their question and Ifatarot — no generic advice. Keep replies to a few sentences unless real depth is needed.";
       const apiMessages = nextLog.map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
-      let { text: answer } = await callAgentMessagesFull(system, apiMessages, { maxTokens: 1200, meta: { type: "strategist" } });
+      let { text: answer, truncated } = await callAgentMessagesFull(system, apiMessages, { maxTokens: 1200, meta: { type: "strategist" } });
+      if (truncated) {
+        ({ text: answer } = await callAgentMessagesFull(system, apiMessages, { maxTokens: 2400, meta: { type: "strategist" } }));
+      }
       if (!answer || !answer.trim()) {
         setStrategistLog([...nextLog, { role: "agent", text: "That didn't come through clearly — no consultation was used. Try sending it again." }]);
         setStrategistLoading(false);
@@ -992,7 +1004,7 @@ export default function Ifatarot() {
     historyMessages.push({ role: "user", content: q });
     try {
       const system = buildSystemPrompt(profile) + "\n\nYou're continuing a saved conversation thread with the seeker, picking up from the reading(s) already in it. Stay grounded in what's already been discussed.";
-      const answer = await callAgentMessages(system, historyMessages);
+      const answer = await callAgentMessages(system, historyMessages, { maxTokens: 1200, meta: { type: "strategist" } });
       if (!answer || !answer.trim()) {
         setError("That didn't come through clearly — no consultation was used. Try again.");
         return;
@@ -1065,7 +1077,7 @@ export default function Ifatarot() {
               <div style={{ fontFamily: "Fraunces, serif", fontSize: 28, color: GOLD }}>Ifatarot</div>
               <div style={{ fontSize: 11, color: SAGE, marginTop: 2, letterSpacing: 0.5 }}>by Ifakande</div>
               <div style={{ fontSize: 13, color: SAGE, marginTop: 8 }}>Two traditions. One clear answer.</div>
-              {onboarded && <div style={{ fontSize: 11, color: SAGE, marginTop: 10 }}>{computeCredits(profile).credits}/{CREDIT_MAX} consultations available</div>}
+              {onboarded && <div style={{ fontSize: 11, color: SAGE, marginTop: 10 }}>{isAdminDevice ? "Unlimited consultations (admin)" : `${computeCredits(profile).credits}/${CREDIT_MAX} consultations available`}</div>}
               {onboarded && isStrategistResting(profile).resting && <div style={{ fontSize: 11, color: CAMWOOD, marginTop: 4 }}>{profile.agentName || "Your strategist"} is resting — back in about {formatMinutes(isStrategistResting(profile).untilMin)}</div>}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1193,7 +1205,7 @@ export default function Ifatarot() {
         {screen === "dim-question" && (
           <div>
             <Header title="Ask your question" onBack={() => (viaResident ? go("home") : setScreen("dim-tradition"))} />
-            <p style={{ fontSize: 11, color: SAGE, marginBottom: 16 }}>{computeCredits(profile).credits} consultation{computeCredits(profile).credits === 1 ? "" : "s"} available right now{isStrategistResting(profile).resting ? ` · resting for about ${formatMinutes(isStrategistResting(profile).untilMin)}` : ""}</p>
+            <p style={{ fontSize: 11, color: SAGE, marginBottom: 16 }}>{isAdminDevice ? "Unlimited consultations (admin)" : `${computeCredits(profile).credits} consultation${computeCredits(profile).credits === 1 ? "" : "s"} available right now${isStrategistResting(profile).resting ? ` · resting for about ${formatMinutes(isStrategistResting(profile).untilMin)}` : ""}`}</p>
             {attachNoteId && <p style={{ fontSize: 12, color: GOLD, marginBottom: 12 }}>Adding this reading to your saved note.</p>}
             <Field label="Speak or type what's on your mind">
               <textarea value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="What do I need to understand about this decision?" style={{ width: "100%", minHeight: 110, boxSizing: "border-box", background: "rgba(243,234,216,0.05)", border: `1px solid ${HAIRLINE}`, borderRadius: 6, padding: 14, color: IVORY, fontSize: 15, fontFamily: "Karla, sans-serif", resize: "vertical", outline: "none" }} />
@@ -1265,7 +1277,7 @@ export default function Ifatarot() {
           );
         })()}
 
-        {screen === "dim-reading" && resolved && dimKey !== "2D" && (
+        {screen === "dim-reading" && resolved && !(dimKey === "2D" && (mode.key === "duality" || mode.key === "polarity")) && (
           <div>
             <Header title="Your reading" onBack={() => go("begin")} />
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
@@ -1300,7 +1312,7 @@ export default function Ifatarot() {
           </div>
         )}
 
-        {screen === "dim-reading" && resolved && dimKey === "2D" && (() => {
+        {screen === "dim-reading" && resolved && dimKey === "2D" && (mode.key === "duality" || mode.key === "polarity") && (() => {
           const isDuality = mode.key === "duality";
           const left = resolved.find((p) => p.key === (isDuality ? "disagreeable" : "physical"));
           const right = resolved.find((p) => p.key === (isDuality ? "agreeable" : "spiritual"));
@@ -1427,7 +1439,7 @@ export default function Ifatarot() {
         {screen === "strategist" && (
           <div>
             <Header title="Your strategist" onBack={() => go("home")} />
-            <p style={{ fontSize: 11, color: SAGE, marginBottom: 12 }}>{computeCredits(profile).credits} consultation{computeCredits(profile).credits === 1 ? "" : "s"} available right now{isStrategistResting(profile).resting ? ` · resting for about ${formatMinutes(isStrategistResting(profile).untilMin)}` : ""}</p>
+            <p style={{ fontSize: 11, color: SAGE, marginBottom: 12 }}>{isAdminDevice ? "Unlimited consultations (admin)" : `${computeCredits(profile).credits} consultation${computeCredits(profile).credits === 1 ? "" : "s"} available right now${isStrategistResting(profile).resting ? ` · resting for about ${formatMinutes(isStrategistResting(profile).untilMin)}` : ""}`}</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: 360, overflowY: "auto", marginBottom: 16 }}>
               {strategistLog.length === 0 && <p style={{ color: SAGE, fontSize: 13 }}>Ask {profile.agentName || "your strategist"} anything. Keep talking it through — they'll work with you toward a clear synthesis, then suggest a reading depth if one fits.</p>}
               {strategistLog.map((m, i) => (

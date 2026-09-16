@@ -110,6 +110,16 @@ about if this is ever a multi-user product rather than just you testing it.
 Same in-memory caveat as the credit system: this resets on a service
 restart. Move to real storage before it needs to survive that.
 
+Unlocking the panel also flags that specific device as an admin device,
+server-side. From then on, that device's own readings and strategist
+messages skip the credit limit entirely — a fast lane for you while
+everyone else's rolling credits still apply. Its own draws don't count
+toward the usage stats you're looking at, so the numbers stay
+representative of real seekers, not your own testing. This flag lives in
+the same in-memory store as everything else here, so a service restart
+clears it too — re-enter the passphrase once after a redeploy to reopen
+the fast lane.
+
 ## Everything else that still applies
 
 - **Storage is per-device** (localStorage) — profiles, notes, Vessel

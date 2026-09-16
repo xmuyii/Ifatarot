@@ -55,6 +55,13 @@ function adminRateLimitOk(ip) {
   return a.count <= 10;
 }
 
+// ---- devices that have proven they know the admin passphrase ----
+// Bypasses the credit limit entirely for that device — a fast lane for you while
+// everyone else's rolling credits still apply normally. In memory, same as
+// everything else here: resets on a service restart, so re-enter the passphrase
+// once after a redeploy to re-open the fast lane.
+const adminDevices = new Set();
+
 /* ============================================================
    AI PROVIDER LAYER
    ------------------------------------------------------------
@@ -115,10 +122,12 @@ app.post("/api/generate", async (req, res) => {
   const { system, messages, max_tokens, internal, meta } = req.body || {};
   if (!messages) { res.status(400).json({ error: "Missing messages." }); return; }
 
+  const isAdmin = adminDevices.has(deviceId);
   const state = getState(deviceId);
   // "internal" calls (dimension classification, quiet vessel-insight extraction)
   // don't cost the seeker a consultation — only their own questions and readings do.
-  if (!internal && state.credits < 1) {
+  // Admin devices skip this check entirely, on top of that.
+  if (!internal && !isAdmin && state.credits < 1) {
     const hoursUntilNext = CREDIT_REFILL_HOURS - (Date.now() - state.lastRefillAt) / 3600000;
     res.status(429).json({ error: `You're out of consultations for now — the next one unlocks in about ${formatWait(Math.max(0, hoursUntilNext))}.` });
     return;
@@ -135,9 +144,11 @@ app.post("/api/generate", async (req, res) => {
     if (!result.ok) { console.error(`[${providerName}] API error:`, result.error); res.status(502).json({ error: result.error }); return; }
     // Only spend a credit — and only log an event — on genuinely meaningful content.
     // An empty or failed response should never cost the seeker a consultation, and
-    // shouldn't pollute the admin stats either.
+    // shouldn't pollute the admin stats either. Admin devices never spend a credit,
+    // and their own testing draws don't get folded into the usage stats they're
+    // looking at, so the numbers stay representative of real seekers.
     const hasText = result.content.some((b) => b.text && b.text.trim());
-    if (!internal && hasText) {
+    if (!internal && hasText && !isAdmin) {
       state.credits -= 1;
       logEvent(deviceId, meta);
     }
@@ -154,6 +165,9 @@ app.post("/api/admin/stats", (req, res) => {
   const real = process.env.ADMIN_PASSPHRASE;
   const { passphrase } = req.body || {};
   if (!real || passphrase !== real) { res.status(403).json({ error: "Not authorized." }); return; }
+
+  const deviceId = req.headers["x-device-id"];
+  if (deviceId) adminDevices.add(deviceId);
 
   const now = Date.now();
   const devices = [...deviceState.values()];
