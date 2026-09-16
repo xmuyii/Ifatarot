@@ -132,7 +132,7 @@ app.post("/api/generate", async (req, res) => {
 
   try {
     const result = await provider.call(system, messages, max_tokens || 1200, apiKey);
-    if (!result.ok) { res.status(502).json({ error: result.error }); return; }
+    if (!result.ok) { console.error(`[${providerName}] API error:`, result.error); res.status(502).json({ error: result.error }); return; }
     // Only spend a credit — and only log an event — on genuinely meaningful content.
     // An empty or failed response should never cost the seeker a consultation, and
     // shouldn't pollute the admin stats either.
@@ -143,7 +143,8 @@ app.post("/api/generate", async (req, res) => {
     }
     res.status(200).json({ content: result.content, stop_reason: result.stop_reason });
   } catch (e) {
-    res.status(500).json({ error: `Failed to reach ${providerName}.` });
+    console.error(`[${providerName}] request failed:`, e);
+    res.status(500).json({ error: `Failed to reach ${providerName}: ${e.message || "unknown error"}` });
   }
 });
 

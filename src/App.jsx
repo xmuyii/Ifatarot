@@ -887,7 +887,10 @@ export default function Ifatarot() {
       extractVesselInsight(`Question: "${useQuestion}"\nReading given: ${text}`).then((ins) => { if (ins) recordVesselInsight(ins); });
       if (attachNoteId) await appendReadingToNote(attachNoteId, { dimKey: useDimKey, modeLabel: useMode.title, question: useQuestion, positions, reading: text });
     } catch (e) {
-      setReading(`Your cards are drawn, but the reading couldn't reach ${profile.agentName || "your strategist"} — check your connection and tap "Try again" below. No consultation was used.`);
+      const detail = e && e.message ? e.message : "";
+      setReading(detail
+        ? `Your cards are drawn, but ${profile.agentName || "your strategist"} couldn't respond: ${detail} No consultation was used.`
+        : `Your cards are drawn, but the reading couldn't reach ${profile.agentName || "your strategist"} — check your connection and tap "Try again" below. No consultation was used.`);
       setReadingFailed(true);
     } finally { setLoading(false); }
   }
@@ -927,7 +930,8 @@ export default function Ifatarot() {
       setStrategistSuggestion({ dimKey: match, question: q });
       pushEvent("strategist", { dimension: match });
     } catch (e) {
-      setStrategistLog([...nextLog, { role: "agent", text: "Something went wrong reaching your strategist — no consultation was used. Try again in a moment." }]);
+      const detail = e && e.message ? ` (${e.message})` : "";
+      setStrategistLog([...nextLog, { role: "agent", text: `Something went wrong reaching your strategist${detail} — no consultation was used. Try again in a moment.` }]);
     } finally { setStrategistLoading(false); }
   }
 
@@ -998,7 +1002,8 @@ export default function Ifatarot() {
       await consumeCredit();
       extractVesselInsight(`Seeker said: "${q}"\nStrategist replied: ${answer}`).then((ins) => { if (ins) recordVesselInsight(ins); });
     } catch (e) {
-      setError("Couldn't reach your strategist. Try again — no consultation was used.");
+      const detail = e && e.message ? ` ${e.message}` : "";
+      setError(`Couldn't reach your strategist.${detail} Try again — no consultation was used.`);
     } finally { setNoteChatLoading(false); }
   }
   function drawAnotherForNote(note) {
