@@ -82,24 +82,79 @@ const SUITS = [
   { key: "Swords", theme: "thought, conflict, and hard truths", color: SWORD_GRAY },
   { key: "Pentacles", theme: "resources, work, and the material world", color: SAGE },
 ];
-const RANK_PHRASES = {
-  Ace: "a fresh spark, right at the start", Two: "a first choice, or a balance to strike",
-  Three: "early growth through collaboration", Four: "a pause to consolidate what's been built",
-  Five: "friction, and a real test", Six: "cooperation, or relief after a struggle",
-  Seven: "a challenge that asks for patience over force", Eight: "movement — mastery still in progress",
-  Nine: "nearing completion, close to a threshold", Ten: "a full ending, the cycle completed",
-  Page: "a student's curiosity, still learning the terrain", Knight: "focused pursuit, moving fast toward a goal",
-  Queen: "mature, intuitive command", King: "confident mastery, fully in charge",
-};
-const RANKS = Object.keys(RANK_PHRASES);
+const RANKS = ["Ace", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Page", "Knight", "Queen", "King"];
 const MINORS = SUITS.flatMap((s) => RANKS.map((r) => ({ name: `${r} of ${s.key}`, suit: s.key, rank: r })));
+
+// Original, hand-written meanings for all 56 Minor Arcana — not reproduced from any
+// existing deck guide or website, to keep this clear of anyone else's copyrighted text.
+const MINOR_MEANINGS = [
+  ["Ace of Wands", "A spark of ambition arriving before you've figured out what to do with it — pure creative charge, ready to be aimed.", "Excitement with nowhere to go yet, or a false start that fizzles before it takes hold."],
+  ["Two of Wands", "Standing on your own ground, mapping out a bigger territory than the one you're standing in.", "Staying small out of caution, or planning endlessly instead of committing to a direction."],
+  ["Three of Wands", "The first moves have paid off and now you're watching to see what comes back from further out.", "Delays on something you already set in motion, or expecting too much too soon from an early effort."],
+  ["Four of Wands", "A milestone worth celebrating — solid ground built by real effort, not luck.", "A celebration postponed, or stability that hasn't been earned yet."],
+  ["Five of Wands", "Competing energies in the same room, everyone pushing their own version of the plan.", "Conflict finally settling, or friction avoided by simply refusing to engage."],
+  ["Six of Wands", "Recognition for work that was actually hard — a win that's visible, not just felt privately.", "Success that goes unnoticed, or claiming a win that wasn't fully earned."],
+  ["Seven of Wands", "Holding your position while others press in, standing your ground on something worth defending.", "Exhaustion from defending too much, or giving up ground that mattered."],
+  ["Eight of Wands", "Momentum with nothing left in the way — things moving fast once they finally get moving.", "Delays piling up, or moving so fast that nothing gets a chance to land properly."],
+  ["Nine of Wands", "Worn down but still standing, one more effort between here and done.", "Defensiveness that's stopped being useful, or genuine burnout mistaken for resilience."],
+  ["Ten of Wands", "Carrying more than your share, close to the finish line but feeling every step of it.", "Setting down a burden that was never really yours, or collapsing under weight you kept adding to yourself."],
+  ["Page of Wands", "A new idea catching fire, eager and untested, still figuring out what it wants to become.", "Enthusiasm without follow-through, or news that turns out to be premature."],
+  ["Knight of Wands", "Charging at something with total conviction, more interested in the chase than the plan.", "Recklessness dressed up as confidence, or momentum with no clear destination."],
+  ["Queen of Wands", "Warmth with real backbone — drawing people in without losing your own direction.", "Confidence curdling into control, or warmth used to mask insecurity."],
+  ["King of Wands", "Vision paired with the discipline to actually build it, leading by example rather than force.", "Big ideas with no grounding, or leadership that demands more than it gives."],
+
+  ["Ace of Cups", "A feeling arriving before you have words for it — the start of real emotional openness.", "Feelings kept sealed off, or an offer of connection that goes unanswered."],
+  ["Two of Cups", "A real meeting between equals, something mutual forming without either side having to win.", "A connection out of balance, or a bond straining under something unspoken."],
+  ["Three of Cups", "Genuine celebration shared with people who actually showed up for you.", "A gathering that feels hollow, or joy that's really overindulgence in disguise."],
+  ["Four of Cups", "Something good sitting right in front of you while your attention is somewhere else entirely.", "Finally noticing what was being offered, or restlessness with no real cause behind it."],
+  ["Five of Cups", "Grieving what spilled while standing too close to it to see what's still upright.", "Starting to look up from the loss, or staying stuck in it longer than it deserves."],
+  ["Six of Cups", "Something from earlier finding its way back — nostalgia that still has something useful to offer.", "Living in the past instead of the present, or outgrowing a memory that won't let go."],
+  ["Seven of Cups", "Too many possibilities laid out at once, each one glittering and none of them tested.", "Cutting through the illusions and finally choosing one real thing over a dozen fantasies."],
+  ["Eight of Cups", "Walking away from something that looks fine from the outside because it stopped being enough.", "Staying out of fear of the unknown, or leaving before really knowing why."],
+  ["Nine of Cups", "A wish actually met — quiet satisfaction that doesn't need to prove itself to anyone.", "Satisfaction that's all surface, or chasing pleasure to avoid a deeper emptiness."],
+  ["Ten of Cups", "A sense of real contentment, the kind built with other people rather than in spite of them.", "A picture-perfect life that doesn't match what's actually happening underneath it."],
+  ["Page of Cups", "An emotional message or invitation arriving gently, worth taking seriously even though it looks small.", "Emotional immaturity, or a feeling being performed rather than truly felt."],
+  ["Knight of Cups", "Following the heart on a real offer, moving toward something because it feels genuinely right.", "Charm without substance, or a promise made in a mood that won't survive the morning."],
+  ["Queen of Cups", "Emotional depth that stays steady — feeling everything without being swept away by it.", "Absorbing everyone else's feelings until you've lost track of your own."],
+  ["King of Cups", "Calm command of your own emotional weather, even when what's underneath is a lot.", "Feelings kept so controlled they leak out sideways, or compassion that's really avoidance."],
+
+  ["Ace of Swords", "A moment of total clarity cutting through everything that was clouding the picture.", "Confusion mistaken for clarity, or a truth used carelessly instead of precisely."],
+  ["Two of Swords", "A decision being avoided by refusing to look at it directly, balance held through denial.", "The blindfold finally coming off, or a stalemate breaking because it has to."],
+  ["Three of Swords", "A hurt that's real and specific, not vague — something has actually been said or done.", "Old pain resurfacing, or finally starting to release a grief that's been held onto too tightly."],
+  ["Four of Swords", "A deliberate pause — stepping back from the fight to actually recover before the next round.", "Rest that's been avoided too long, or restlessness that won't allow real recovery."],
+  ["Five of Swords", "Winning an argument in a way that costs more than it gains.", "Walking away from a fight that wasn't worth winning, or finally making peace after conflict."],
+  ["Six of Swords", "Moving away from a difficult situation toward calmer water, even if the way there is quiet and unglamorous.", "Stuck in transition, unable to fully leave what needs leaving."],
+  ["Seven of Swords", "Getting away with something through cleverness rather than confrontation.", "A deception coming to light, or finally coming clean about something."],
+  ["Eight of Swords", "Feeling trapped by a situation that has more exits than it appears to from the inside.", "Starting to see a way out, or realizing the trap was partly self-made."],
+  ["Nine of Swords", "Anxiety at its loudest, usually at 3am, usually louder than the actual problem deserves.", "Finally getting some rest from the worry, or the fear turning out to be worse than the reality."],
+  ["Ten of Swords", "A painful ending that's already happened — nothing left to do but accept it and get up.", "Resisting an ending that's already final, or recovery finally beginning after the worst of it."],
+  ["Page of Swords", "A sharp new idea or piece of information, still untested but worth paying attention to.", "Gossip mistaken for insight, or words used carelessly before they're thought through."],
+  ["Knight of Swords", "Charging straight at the truth, fast and direct, not always pausing to check who's in the way.", "Aggression that's outrun its own judgment, or a point being pushed too hard to land well."],
+  ["Queen of Swords", "Seeing a situation exactly as it is and saying so, without softening it more than it needs.", "Honesty turned cold, or using sharp clarity as a way to keep people at a distance."],
+  ["King of Swords", "Clear-headed authority — making the hard call because it's the right one, not the easy one.", "Logic used to justify something cruel, or rigidity mistaken for principle."],
+
+  ["Ace of Pentacles", "A real opportunity landing in your hands — practical, tangible, worth building on.", "A missed opening, or a good opportunity built on shaky ground."],
+  ["Two of Pentacles", "Juggling more than one priority and actually managing to keep both in the air.", "Overcommitted and starting to drop what matters most."],
+  ["Three of Pentacles", "Good work getting recognized because it was actually built well, often with others' help.", "Effort going unrecognized, or a team not pulling in the same direction."],
+  ["Four of Pentacles", "Holding tightly to what you've built, security bought at the cost of flexibility.", "Loosening a grip that's gotten too tight, or finally spending what's been hoarded out of fear."],
+  ["Five of Pentacles", "A hard stretch — feeling left out in the cold, whether that's financial, physical, or both.", "Help finally arriving, or realizing support was there the whole time and just unseen."],
+  ["Six of Pentacles", "A fair exchange — help given or received in a way that actually balances out.", "Generosity with strings attached, or a debt that's kept someone in a lesser position."],
+  ["Seven of Pentacles", "Taking stock of an investment that's still growing, patience being the only thing left to give it.", "Impatience with slow progress, or effort that isn't actually paying off the way it should."],
+  ["Eight of Pentacles", "Doing the quiet, repetitive work of getting genuinely good at something.", "Going through the motions without real craft behind it, or skill without any real growth."],
+  ["Nine of Pentacles", "Standing on ground you built yourself, comfortable because you earned the comfort.", "Comfort that's come at the cost of connection, or self-sufficiency that's actually isolation."],
+  ["Ten of Pentacles", "Something lasting — built not just for now but for whoever comes after.", "Instability in what should be solid, or wealth that hasn't translated into real security."],
+  ["Page of Pentacles", "A practical new opportunity worth studying closely before acting on it.", "An opportunity treated too casually, or ambition without any concrete plan behind it."],
+  ["Knight of Pentacles", "Slow, steady, reliable progress — not exciting, but it's the kind that actually holds.", "Progress stalling into pure routine, or caution tipping into standing completely still."],
+  ["Queen of Pentacles", "Practical care — making sure the people and things you're responsible for are actually looked after.", "Overextending yourself caring for others while your own needs go unmet."],
+  ["King of Pentacles", "Real, earned abundance, generous because there's genuinely enough to share.", "Success measured only in what can be counted, or generosity that's really about control."],
+];
+
 function tarotMeaning(name) {
   const major = MAJORS.find((m) => m[0] === name);
   if (major) return { upright: major[1], reversed: major[2] };
-  const minor = MINORS.find((m) => m.name === name);
-  const suit = SUITS.find((s) => s.key === minor.suit);
-  const phrase = RANK_PHRASES[minor.rank];
-  return { upright: `${phrase[0].toUpperCase()}${phrase.slice(1)}, in the realm of ${suit.theme}.`, reversed: `${phrase}, but blocked, delayed, or turned inward, in the realm of ${suit.theme}.` };
+  const minor = MINOR_MEANINGS.find((m) => m[0] === name);
+  if (minor) return { upright: minor[1], reversed: minor[2] };
+  return { upright: "Meaning not yet written for this card.", reversed: "Meaning not yet written for this card." }; // safety net, shouldn't be reachable
 }
 function tarotColor(name) {
   const major = MAJORS.find((m) => m[0] === name);
@@ -398,7 +453,25 @@ function buildMultiPrompt(dimKey, modeKey, dimLabel, modeTitle, resolved, questi
   if (dimKey === "2D" && modeKey === "polarity") extra = "\n\nThis is a spiritual-versus-physical reading: the Spiritual position carries a green, higher, sky-facing energy, and the Physical position carries a red, rooted, earth-facing energy. Let that elemental contrast actively shape your interpretation of both cards.";
   const oduConnections = findOduConnections(resolved);
   if (oduConnections.length) extra += `\n\nOdu connections detected across this spread — these shared roots are meaningful, not coincidence, weave them into your reading where it serves the question: ${oduConnections.join(" ")}`;
+  const tarotGrounding = resolved.flatMap((p) => p.cards.filter((c) => c.tradition === "tarot").map((c) => {
+    const m = tarotMeaning(c.name);
+    return `${c.name}${c.reversed ? " (reversed)" : ""} — ${c.reversed ? m.reversed : m.upright}`;
+  }));
+  if (tarotGrounding.length) extra += `\n\nThis app's own grounding for the Tarot cards drawn (treat as your anchor, not a script to recite word-for-word):\n${tarotGrounding.join("\n")}`;
   return `This is a ${dimLabel} reading, laid out as "${modeTitle}". Positions and what was drawn:\n${lines.join("\n")}\n\nThe seeker's question: "${question}"${extra}\n\nAddress each position by its label, in order, then close with a short synthesis and one concrete next step. ${lengthGuidance}`;
+}
+
+// When there's no connection, a tailored AI reading isn't possible — but the card's
+// own written meaning already lives locally, so offer that instead of nothing.
+function buildOfflineFallback(positions) {
+  const lines = positions.flatMap((p) => p.cards.map((c) => {
+    if (c.tradition === "tarot") {
+      const m = tarotMeaning(c.name);
+      return `${p.label} — ${c.name}${c.reversed ? " (reversed)" : ""}: ${c.reversed ? m.reversed : m.upright}`;
+    }
+    return `${p.label} — ${c.name}${c.reversed ? " (reversed)" : ""}: full teaching for this odu isn't written yet, so there's no offline meaning to show here.`;
+  }));
+  return `You're offline, so here's the card's own written meaning rather than a reading tailored to your question — reconnect for that. No consultation was used.\n\n${lines.join("\n\n")}`;
 }
 async function callAgentMessagesFull(system, messages, opts) {
   // Not subject to the artifact-preview's fixed-1000 constraint — this talks to your
@@ -640,6 +713,36 @@ export default function Ifatarot() {
       }
       const admin = await safeGet("ifatarot:is-admin");
       if (admin === "1") setIsAdminDevice(true);
+
+      // Resume an in-progress or just-finished reading if the app got closed
+      // mid-flow — otherwise leaving the app mid-reading loses it entirely.
+      const s = await safeGet("ifatarot:session");
+      if (s) {
+        try {
+          const session = JSON.parse(s);
+          const isRecent = Date.now() - (session.savedAt || 0) < 24 * 3600000;
+          const dc = session.dimKey ? DIMENSIONS[session.dimKey] : null;
+          const restoredMode = dc && session.modeKey ? dc.modes.find((m) => m.key === session.modeKey) : null;
+          if (isRecent && restoredMode) {
+            setDimKey(session.dimKey);
+            setMode(restoredMode);
+            setAssignment(session.assignment || {});
+            setQuestion(session.question || "");
+            setAttachNoteId(session.attachNoteId || null);
+            if (session.reading && session.resolved) {
+              // a completed reading they hadn't saved yet — the highest-value thing to not lose
+              setResolved(session.resolved);
+              setReading(session.reading);
+              setScreen("dim-reading");
+            } else {
+              // mid-setup, or mid-shuffle-animation which can't itself be resumed —
+              // land back on the question screen with everything they'd already entered intact
+              setScreen("dim-question");
+            }
+          }
+          if (Array.isArray(session.strategistLog) && session.strategistLog.length) setStrategistLog(session.strategistLog);
+        } catch (e) {}
+      }
     })();
 
     const standalone = window.matchMedia && window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
@@ -653,6 +756,20 @@ export default function Ifatarot() {
     })();
     return () => window.removeEventListener("beforeinstallprompt", onBeforeInstall);
   }, []);
+
+  async function clearSession() { try { await window.storage.delete("ifatarot:session"); } catch (e) {} }
+
+  // Debounced autosave of whatever reading/conversation is currently in progress,
+  // so closing or backgrounding the app mid-flow doesn't wipe it out.
+  useEffect(() => {
+    const hasSomethingToResume = dimKey || question.trim() || resolved || strategistLog.length > 0;
+    if (!hasSomethingToResume) return;
+    const timer = setTimeout(() => {
+      const session = { screen, dimKey, modeKey: mode ? mode.key : null, assignment, question, resolved, reading, attachNoteId, strategistLog, savedAt: Date.now() };
+      window.storage.set("ifatarot:session", JSON.stringify(session)).catch(() => {});
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [screen, dimKey, mode, assignment, question, resolved, reading, attachNoteId, strategistLog]);
 
   async function dismissInstallCard() {
     setShowInstallCard(false);
@@ -743,6 +860,7 @@ export default function Ifatarot() {
   async function loadDimensionNotes(key) { const raw = await safeGet("ifatarot:notes-list"); const list = raw ? JSON.parse(raw) : []; setDimensionNotes(list.filter((n) => n.dimKey === key)); }
 
   function go(key) {
+    if (key === "home") clearSession();
     if (key === "library-root") { setLibraryTradition(null); setScreen("library"); }
     else if (key === "notes") { setActiveNote(null); loadNotes(); setScreen("notes"); }
     else setScreen(key);
@@ -750,6 +868,7 @@ export default function Ifatarot() {
 
   function beginClicked() {
     setAttachNoteId(null);
+    clearSession();
     if (onboarded) setScreen("begin");
     else { setDraftProfile(emptyProfile); setObStep(0); setScreen("onboarding"); }
   }
@@ -867,7 +986,7 @@ export default function Ifatarot() {
     setScreen(profile.readingMode === "patience" ? "dim-reveal" : "dim-reading");
 
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setReading(`Your cards are drawn. ${profile.agentName || "Your strategist"} needs a connection to give tailored guidance, though — reconnect and tap "Try again" below. No consultation was used.`);
+      setReading(buildOfflineFallback(positions));
       setReadingFailed(true);
       setLoading(false);
       return;
@@ -960,6 +1079,7 @@ export default function Ifatarot() {
     try { await window.storage.set("ifatarot:notes-list", JSON.stringify(list.slice(0, 100))); } catch (e) {}
     pushEvent("note", { dimension: dimKey });
     setNoteTitle("");
+    clearSession();
     go("notes");
   }
   function normalizeNote(n) {
