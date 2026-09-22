@@ -315,6 +315,7 @@ const DIMENSIONS = {
       mkMode("assess", "Assess a Situation", ["Situation", "Extra Info"]),
       mkMode("problemSolving", "Problem Solving", ["Problem", "Solution"]),
       mkMode("selfKnowledge", "Self Knowledge", ["Accept", "Release"]),
+      mkMode("thisOrThat", "This or That", ["This", "That"]),
     ],
   },
   "3D": {
@@ -551,7 +552,7 @@ function PrimaryButton({ onClick, children, disabled, style }) { return <button 
 function GhostButton({ onClick, children, style }) { return <button onClick={onClick} style={{ padding: "12px 18px", borderRadius: 8, border: `1px solid ${HAIRLINE}`, background: "transparent", color: IVORY, fontSize: 14, fontFamily: "Karla, sans-serif", cursor: "pointer", ...style }}>{children}</button>; }
 function Header({ title, onBack }) { return <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>{onBack && <button onClick={onBack} style={{ background: "none", border: "none", color: SAGE, fontSize: 20, cursor: "pointer", padding: 0 }}>&larr;</button>}<h1 style={{ fontFamily: "Fraunces, serif", fontWeight: 500, fontSize: 22, color: IVORY, margin: 0 }}>{title}</h1></div>; }
 function BottomNav({ screen, go }) {
-  const items = [["home", "Home"], ["strategist", "Strategist"], ["library-root", "Library"]];
+  const items = [["home", "Home"], ["strategist", "Strategist"]];
   return <div style={{ display: "flex", borderTop: `1px solid ${HAIRLINE}`, marginTop: 32, paddingTop: 14, gap: 8 }}>{items.map(([key, label]) => <button key={key} onClick={() => go(key)} style={{ flex: 1, background: "none", border: "none", color: screen === key ? GOLD : SAGE, fontSize: 12.5, fontFamily: "Karla, sans-serif", cursor: "pointer", padding: "6px 0" }}>{label}</button>)}</div>;
 }
 
@@ -820,6 +821,18 @@ export default function Ifatarot() {
     setProfile(updated);
     try { await window.storage.set("ifatarot:profile", JSON.stringify(updated)); } catch (e) {}
   }
+  // The one case where a server "out of consultations" error can arrive despite the
+  // client believing it's admin: the server restarted (every redeploy does this) and
+  // forgot this device. Rather than show a confusing "unlimited" label next to an "out
+  // of consultations" error, quietly correct the stale local flag and say so plainly.
+  async function describeGenerationError(message) {
+    if (isAdminDevice && message && message.toLowerCase().includes("consultation")) {
+      setIsAdminDevice(false);
+      try { await window.storage.delete("ifatarot:is-admin"); } catch (e) {}
+      return "The server no longer recognizes this device as admin — it likely restarted since you last unlocked it. Re-enter your admin passphrase in Settings, then try again.";
+    }
+    return message || "";
+  }
   async function recordVesselInsight(ins) {
     if (!ins) return;
     setProfile((prev) => {
@@ -1000,7 +1013,9 @@ export default function Ifatarot() {
       const meta = { type: "reading", dimension: useDimKey, mode: useMode.key, traditions: positions.flatMap((p) => p.cards.map((c) => c.tradition)), cardNames: positions.flatMap((p) => p.cards.map((c) => ({ tradition: c.tradition, name: c.name }))) };
       let { text, truncated } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens, meta });
       if ((!text || !text.trim()) || truncated) {
-        ({ text, truncated } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens: Math.min(8192, maxTokens + 1500), meta }));
+        // Fixing a truncated/empty first attempt is on us, not a second consultation —
+        // mark it internal so it can never be billed or logged a second time.
+        ({ text, truncated } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens: Math.min(8192, maxTokens + 1500), meta, internal: true }));
       }
       if (!text || !text.trim()) {
         setReading("Your strategist didn't come back with a reading that time — no consultation was used.");
@@ -1015,7 +1030,7 @@ export default function Ifatarot() {
       extractVesselInsight(`Question: "${useQuestion}"\nReading given: ${text}`).then((ins) => { if (ins) recordVesselInsight(ins); });
       if (attachNoteId) await appendReadingToNote(attachNoteId, { dimKey: useDimKey, modeLabel: useMode.title, question: useQuestion, positions, reading: text });
     } catch (e) {
-      const detail = e && e.message ? e.message : "";
+      const detail = await describeGenerationError(e && e.message ? e.message : "");
       setReading(detail
         ? `Your cards are drawn, but ${profile.agentName || "your strategist"} couldn't respond: ${detail} No consultation was used.`
         : `Your cards are drawn, but the reading couldn't reach ${profile.agentName || "your strategist"} — check your connection and tap "Try again" below. No consultation was used.`);
@@ -1043,7 +1058,7 @@ export default function Ifatarot() {
       const apiMessages = nextLog.map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
       let { text: answer, truncated } = await callAgentMessagesFull(system, apiMessages, { maxTokens: 1200, meta: { type: "strategist" } });
       if (truncated) {
-        ({ text: answer } = await callAgentMessagesFull(system, apiMessages, { maxTokens: 2400, meta: { type: "strategist" } }));
+        ({ text: answer } = await callAgentMessagesFull(system, apiMessages, { maxTokens: 2400, meta: { type: "strategist" }, internal: true }));
       }
       if (!answer || !answer.trim()) {
         setStrategistLog([...nextLog, { role: "agent", text: "That didn't come through clearly — no consultation was used. Try sending it again." }]);
@@ -1061,8 +1076,12 @@ export default function Ifatarot() {
       setStrategistSuggestion({ dimKey: match, question: q });
       pushEvent("strategist", { dimension: match });
     } catch (e) {
-      const detail = e && e.message ? ` (${e.message})` : "";
-      setStrategistLog([...nextLog, { role: "agent", text: `Something went wrong reaching your strategist${detail} — no consultation was used. Try again in a moment.` }]);
+      const raw = e && e.message ? e.message : "";
+      const resolved = await describeGenerationError(raw);
+      const text = resolved && resolved !== raw
+        ? resolved
+        : `Something went wrong reaching your strategist${raw ? ` (${raw})` : ""} — no consultation was used. Try again in a moment.`;
+      setStrategistLog([...nextLog, { role: "agent", text }]);
     } finally { setStrategistLoading(false); }
   }
 
@@ -1134,8 +1153,9 @@ export default function Ifatarot() {
       await consumeCredit();
       extractVesselInsight(`Seeker said: "${q}"\nStrategist replied: ${answer}`).then((ins) => { if (ins) recordVesselInsight(ins); });
     } catch (e) {
-      const detail = e && e.message ? ` ${e.message}` : "";
-      setError(`Couldn't reach your strategist.${detail} Try again — no consultation was used.`);
+      const raw = e && e.message ? e.message : "";
+      const resolved = await describeGenerationError(raw);
+      setError(resolved && resolved !== raw ? resolved : `Couldn't reach your strategist.${raw ? ` ${raw}` : ""} Try again — no consultation was used.`);
     } finally { setNoteChatLoading(false); }
   }
   function drawAnotherForNote(note) {
