@@ -115,6 +115,34 @@ const PROVIDERS = {
       };
     },
   },
+  gemini: {
+    apiKeyEnv: "GEMINI_API_KEY",
+    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    async call(system, messages, maxTokens, apiKey) {
+      // Gemini's shape differs from the other two: turns are "contents" with
+      // role "user"/"model" (not "assistant"), and the system prompt is its own
+      // top-level field rather than a message.
+      const contents = messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({
+          contents,
+          systemInstruction: system ? { parts: [{ text: system }] } : undefined,
+          generationConfig: { maxOutputTokens: maxTokens },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: data.error?.message || "Gemini API error" };
+      const candidate = (data.candidates || [])[0];
+      const text = (candidate?.content?.parts || []).map((p) => p.text || "").join("");
+      return {
+        ok: true,
+        content: text ? [{ type: "text", text }] : [],
+        stop_reason: candidate?.finishReason === "MAX_TOKENS" ? "max_tokens" : candidate?.finishReason,
+      };
+    },
+  },
 };
 
 app.post("/api/generate", async (req, res) => {

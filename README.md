@@ -64,7 +64,7 @@ response so the frontend never knows which one answered. To switch:
 2. Save. Railway restarts the service. That's it — no code change, no
    rebuild of the frontend.
 
-Currently supported: `anthropic` (default) and `deepseek`. Each is a small,
+Currently supported: `anthropic` (default), `deepseek`, and `gemini`. Each is a small,
 self-contained block in `server.js` under `PROVIDERS` — adding a third
 provider later means adding one more block there, in the same shape.
 

@@ -697,6 +697,7 @@ export default function Ifatarot() {
   const recogRef = useRef(null);
   const timerRef = useRef(null);
   const baseQuestionRef = useRef("");
+  const finalTranscriptRef = useRef("");
   const [viaResident, setViaResident] = useState(false);
   const [attachNoteId, setAttachNoteId] = useState(null);
   const [noteChatInput, setNoteChatInput] = useState("");
@@ -947,13 +948,27 @@ export default function Ifatarot() {
     if (!SR) { setError("Voice input isn't available in this browser. Type instead."); return; }
     if (listening) { recogRef.current && recogRef.current.stop(); return; }
     baseQuestionRef.current = question;
+    finalTranscriptRef.current = "";
     const recog = new SR();
     recog.lang = "en-US"; recog.interimResults = true; recog.continuous = true;
     recog.onresult = (e) => {
-      let transcript = "";
-      for (let i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript;
+      // Only text the browser has actually finalized gets permanently committed —
+      // still-changing interim guesses are shown live but never locked in, so a
+      // word the recognizer later corrects doesn't end up duplicated or jumbled
+      // in with the committed sentence.
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const result = e.results[i];
+        const chunk = result[0].transcript.trim();
+        if (result.isFinal) {
+          if (chunk) finalTranscriptRef.current = (finalTranscriptRef.current ? finalTranscriptRef.current + " " : "") + chunk;
+        } else {
+          interim += (interim ? " " : "") + chunk;
+        }
+      }
       const base = baseQuestionRef.current;
-      setQuestion(base ? base + " " + transcript : transcript);
+      const combined = [base, finalTranscriptRef.current, interim].filter((s) => s && s.trim()).join(" ");
+      setQuestion(combined);
     };
     recog.onend = () => { setListening(false); if (timerRef.current) clearInterval(timerRef.current); };
     recog.onerror = (e) => {
