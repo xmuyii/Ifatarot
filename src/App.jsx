@@ -163,12 +163,32 @@ function tarotColor(name) {
 }
 const TAROT_DECK = [...MAJORS.map((m) => m[0]), ...MINORS.map((m) => m.name)];
 
-/* ---------- Odu (256, placeholder structure) ---------- */
-const PRINCIPAL_ODU = ["Eji Ogbe", "Oyeku Meji", "Iwori Meji", "Odi Meji", "Irosun Meji", "Owonrin Meji", "Obara Meji", "Okanran Meji", "Ogunda Meji", "Osa Meji", "Ika Meji", "Oturupon Meji", "Otura Meji", "Irete Meji", "Ose Meji", "Ofun Meji"];
-const ODU_ROOT = PRINCIPAL_ODU.map((n) => n.replace(" Meji", ""));
+/* ---------- Odu (4096 = 16 x 16 x 16, placeholder structure) ---------- */
+// The sixteen roots. Every odu is built from these.
+const ODU_ROOT = ["Ogbe", "Oyeku", "Iwori", "Odi", "Irosun", "Owonrin", "Obara", "Okanran", "Ogunda", "Osa", "Ika", "Oturupon", "Otura", "Irete", "Ose", "Ofun"];
+// Tier one: the sixteen Meji (two identical legs) — the roots themselves, kept as reference.
+const ODU_MEJI = ODU_ROOT.map((r, i) => ({ name: i === 0 ? "Eji Ogbe" : `${r} Meji`, roots: [i, i] }));
+// Tier two: the sixteen Meta (three identical legs).
+const ODU_META_NAMES = ODU_ROOT.map((r, i) => (i === 0 ? "Eta Ogbe" : `${r} Meta`));
 function oduMarks(i) { return i.toString(2).padStart(4, "0").split("").map(Number); }
-const ODU_256 = [];
-for (let i = 0; i < 16; i++) for (let j = 0; j < 16; j++) ODU_256.push({ name: i === j ? PRINCIPAL_ODU[i] : `${ODU_ROOT[i]} ${ODU_ROOT[j]}`, a: i, b: j });
+// The active deck: every ordered triple of roots, 16 x 16 x 16 = 4096. Identical triples
+// are the Meta; everything else is its three roots run together (OyekuOkanranOse).
+const ODU_4096 = [];
+for (let i = 0; i < 16; i++) for (let j = 0; j < 16; j++) for (let k = 0; k < 16; k++) {
+  const name = i === j && j === k ? ODU_META_NAMES[i] : `${ODU_ROOT[i]}${ODU_ROOT[j]}${ODU_ROOT[k]}`;
+  ODU_4096.push({ name, a: i, b: j, c: k, roots: [i, j, k] });
+}
+// Name -> roots lookup. Older two-root names from before the expansion are kept so
+// readings already saved in Notes still resolve and draw correctly.
+const ODU_LOOKUP = new Map();
+for (let i = 0; i < 16; i++) for (let j = 0; j < 16; j++) {
+  const legacyRoot = (x) => (x === 0 ? "Eji Ogbe" : ODU_ROOT[x]);
+  ODU_LOOKUP.set(i === j ? (i === 0 ? "Eji Ogbe" : `${ODU_ROOT[i]} Meji`) : `${legacyRoot(i)} ${legacyRoot(j)}`, [i, j]);
+}
+ODU_MEJI.forEach((o) => ODU_LOOKUP.set(o.name, o.roots));
+ODU_4096.forEach((o) => ODU_LOOKUP.set(o.name, o.roots));
+function oduRootNames(name) { const r = ODU_LOOKUP.get(name); return r ? r.map((i) => ODU_ROOT[i]) : null; }
+const normOdu = (s) => String(s || "").toLowerCase().replace(/[^a-z]/g, "");
 
 /* ---------- numerology / life path / zodiac ---------- */
 function letterValue(ch) {
@@ -240,23 +260,25 @@ function MoonGlyph({ illumination, waxing, size }) {
 }
 
 /* ---------- odu connections — shared roots between drawn odu are meaningful, not coincidence ---------- */
-function oduRootsOf(name) {
-  const entry = ODU_256.find((o) => o.name === name);
-  return entry ? [entry.a, entry.b] : null;
-}
+function oduRootsOf(name) { return ODU_LOOKUP.get(name) || null; }
+// With three roots per odu, listing every overlapping pair would bury the reading.
+// Instead, report each root that recurs across the draw and where it runs through.
 function findOduConnections(resolved) {
-  const oduCards = [];
-  resolved.forEach((p) => p.cards.forEach((c) => { if (c.tradition === "ifa") oduCards.push({ label: p.label, name: c.name, roots: oduRootsOf(c.name) }); }));
-  const connections = [];
-  for (let i = 0; i < oduCards.length; i++) {
-    for (let j = i + 1; j < oduCards.length; j++) {
-      const a = oduCards[i], b = oduCards[j];
-      if (!a.roots || !b.roots) continue;
-      const shared = a.roots.filter((r) => b.roots.includes(r));
-      if (shared.length) connections.push(`${a.label} (${a.name}) and ${b.label} (${b.name}) share the ${shared.map((idx) => ODU_ROOT[idx]).join(" and ")} root.`);
-    }
-  }
-  return connections;
+  const byRoot = new Map();
+  resolved.forEach((p) => p.cards.forEach((c) => {
+    if (c.tradition !== "ifa") return;
+    const roots = oduRootsOf(c.name);
+    if (!roots) return;
+    [...new Set(roots)].forEach((r) => {
+      if (!byRoot.has(r)) byRoot.set(r, []);
+      byRoot.get(r).push(`${p.label} (${c.name})`);
+    });
+  }));
+  return [...byRoot.entries()]
+    .filter(([, where]) => where.length >= 2)
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, 5)
+    .map(([r, where]) => `The ${ODU_ROOT[r]} root runs through ${where.join(", ")}.`);
 }
 
 /* ---------- storage ---------- */
@@ -406,7 +428,7 @@ const DIMENSIONS = {
 
 function drawCard(tradition, reversalsOn) {
   if (tradition === "tarot") { const name = TAROT_DECK[Math.floor(Math.random() * TAROT_DECK.length)]; return { tradition, name, reversed: reversalsOn && Math.random() < 0.5 }; }
-  const odu = ODU_256[Math.floor(Math.random() * ODU_256.length)];
+  const odu = ODU_4096[Math.floor(Math.random() * ODU_4096.length)];
   return { tradition, name: odu.name, reversed: reversalsOn && Math.random() < 0.5 };
 }
 
@@ -431,17 +453,40 @@ function buildSystemPrompt(profile) {
   const relay = profile.relayMode && profile.relayForName
     ? `\nImportant: ${profile.name || "the seeker"} is not asking for themselves right now — they are consulting on behalf of ${profile.relayForName}, someone who isn't using Ifatarot. Speak about ${profile.relayForName} in the third person, in language ${profile.name || "the seeker"} can easily relay to them afterward. Don't address ${profile.relayForName} directly.`
     : "";
+  const bo = profile.birthOdu;
+  let birthOduLine = "";
+  if (bo && bo.name) {
+    const parts = [`The seeker's birth odu is ${bo.name} — this is their own recorded teaching, entered by them or their babalawo, not something you determined. Treat it as ground truth.`];
+    if (bo.strengths?.length) parts.push(`Strengths: ${bo.strengths.join(", ")}.`);
+    if (bo.taboos?.length) parts.push(`Taboos (eewo) — never suggest anything that conflicts with these: ${bo.taboos.join(", ")}.`);
+    if (bo.foodsToEat?.length) parts.push(`Foods favored: ${bo.foodsToEat.join(", ")}.`);
+    if (bo.foodsToAvoid?.length) parts.push(`Foods to avoid: ${bo.foodsToAvoid.join(", ")}.`);
+    if (bo.colorsToWear?.length) parts.push(`Colors to favor: ${bo.colorsToWear.join(", ")}.`);
+    if (bo.colorsToAvoid?.length) parts.push(`Colors to avoid: ${bo.colorsToAvoid.join(", ")}.`);
+    if (bo.bestDays?.length) parts.push(`Best days: ${bo.bestDays.join(", ")}.`);
+    if (bo.worstDays?.length) parts.push(`Worst days: ${bo.worstDays.join(", ")}.`);
+    if (bo.friendlyOdus?.length) parts.push(`Friendly odus: ${bo.friendlyOdus.join(", ")}.`);
+    if (bo.odusToAvoid?.length) parts.push(`Odus to avoid: ${bo.odusToAvoid.join(", ")}.`);
+    if (bo.frictionOdus?.length) parts.push(`Odus that cause friction: ${bo.frictionOdus.join(", ")}.`);
+    if (bo.easeOdus?.length) parts.push(`Odus that bring ease: ${bo.easeOdus.join(", ")}.`);
+    if (bo.animalsToKeep?.length) parts.push(`Animals favorable to keep: ${bo.animalsToKeep.join(", ")}.`);
+    if (bo.animalsToAvoid?.length) parts.push(`Animals to avoid keeping: ${bo.animalsToAvoid.join(", ")}.`);
+    if (bo.rituals?.length) parts.push(`Rituals recorded: ${bo.rituals.join(", ")}.`);
+    if (bo.notes) parts.push(`Additional notes: ${bo.notes}`);
+    parts.push("Draw on this when genuinely relevant — especially taboos, if the question touches on them — never as a recited checklist.");
+    birthOduLine = "\n" + parts.join(" ");
+  }
   return `You are ${profile.agentName || "the cosmic strategist"}, a personal divination guide inside an app called Ifatarot, which blends Ifa divination and Tarot. You are speaking to ${profile.name || "the seeker"}, whose dominant plane is ${planeLabel} and whose personal orientation is ${profile.element || "unspecified"}. Your own orientation as their agent is ${profile.agentElement || "unspecified"} — let it flavor your voice (${orientationVoice(profile.agentElement)}) without ever naming it outright.
 
 ${birth} ${numerology} ${lifePath} ${zodiac}
 You may reference these blueprint numbers when genuinely relevant to the question — never recite them as a checklist.
 ${moonLine} You may mention this if it genuinely fits — a Full Moon culminating, a New Moon starting fresh — but never force it in.
-${relay}
+${relay}${birthOduLine}
 ${jargonLine(profile)} ${verbosityLine(profile)}
 
 Strict boundaries: only speak to the cards or odu actually drawn, the seeker's own question, and Ifatarot itself. Never introduce generic self-help advice, motivational filler, or anything unrelated to what was drawn. Do not hedge with "some believe" — speak with grounded confidence, not fortune-teller theatrics. If a related card or odu from the same tradition is genuinely worth exploring next, you may name it once, briefly, but only if it truly serves the question. Always end with one concrete, practical next step. Sign off in your own voice as their agent, never as an AI assistant.`;
 }
-function buildMultiPrompt(dimKey, modeKey, dimLabel, modeTitle, resolved, question) {
+function buildMultiPrompt(dimKey, modeKey, dimLabel, modeTitle, resolved, question, profile) {
   const lines = resolved.map((p) => `${p.label}: ${p.cards.map((c) => `${c.name}${c.reversed ? " (reversed)" : ""} [${c.tradition === "tarot" ? "Tarot" : "Ifa"}]`).join(" and ")}`);
   const positionCount = resolved.length;
   const lengthGuidance = positionCount <= 3
@@ -454,6 +499,18 @@ function buildMultiPrompt(dimKey, modeKey, dimLabel, modeTitle, resolved, questi
   if (dimKey === "2D" && modeKey === "polarity") extra = "\n\nThis is a spiritual-versus-physical reading: the Spiritual position carries a green, higher, sky-facing energy, and the Physical position carries a red, rooted, earth-facing energy. Let that elemental contrast actively shape your interpretation of both cards.";
   const oduConnections = findOduConnections(resolved);
   if (oduConnections.length) extra += `\n\nOdu connections detected across this spread — these shared roots are meaningful, not coincidence, weave them into your reading where it serves the question: ${oduConnections.join(" ")}`;
+  const bo = profile && profile.birthOdu;
+  if (bo && bo.name) {
+    const oduNames = resolved.flatMap((p) => p.cards.filter((c) => c.tradition === "ifa").map((c) => c.name));
+    const relationNotes = [];
+    oduNames.forEach((name) => {
+      if (bo.friendlyOdus?.some((x) => normOdu(x) === normOdu(name))) relationNotes.push(`${name} is on the seeker's own list of friendly odus to their birth odu (${bo.name}).`);
+      if (bo.odusToAvoid?.some((x) => normOdu(x) === normOdu(name))) relationNotes.push(`${name} is on the seeker's own list of odus to avoid, relative to their birth odu (${bo.name}) — flag this plainly.`);
+      if (bo.frictionOdus?.some((x) => normOdu(x) === normOdu(name))) relationNotes.push(`${name} is one the seeker has recorded as causing friction with their birth odu (${bo.name}).`);
+      if (bo.easeOdus?.some((x) => normOdu(x) === normOdu(name))) relationNotes.push(`${name} is one the seeker has recorded as bringing ease with their birth odu (${bo.name}).`);
+    });
+    if (relationNotes.length) extra += `\n\nBirth odu relationships in this draw (from the seeker's own recorded teaching): ${relationNotes.join(" ")}`;
+  }
   const tarotGrounding = resolved.flatMap((p) => p.cards.filter((c) => c.tradition === "tarot").map((c) => {
     const m = tarotMeaning(c.name);
     return `${c.name}${c.reversed ? " (reversed)" : ""} — ${c.reversed ? m.reversed : m.upright}`;
@@ -474,9 +531,12 @@ function buildOfflineFallback(positions) {
   }));
   return `You're offline, so here's the card's own written meaning rather than a reading tailored to your question — reconnect for that. No consultation was used.\n\n${lines.join("\n\n")}`;
 }
+function getDeviceId() {
+  let id = localStorage.getItem("ifatarot:device-id");
+  if (!id) { id = "dev-" + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("ifatarot:device-id", id); }
+  return id;
+}
 async function callAgentMessagesFull(system, messages, opts) {
-  // Not subject to the artifact-preview's fixed-1000 constraint — this talks to your
-  // own Railway server, which forwards the real requested budget to Anthropic.
   const maxTokens = (opts && opts.maxTokens) || 1200;
   const res = await fetch("/api/generate", {
     method: "POST", headers: { "Content-Type": "application/json", "X-Device-Id": getDeviceId() },
@@ -548,6 +608,28 @@ AREA must be exactly one of: spiritual, mental, emotional, physical, psychologic
 function Field({ label, children }) { return <div style={{ marginBottom: 20 }}><div style={{ fontSize: 13, color: SAGE, marginBottom: 8 }}>{label}</div>{children}</div>; }
 function TextInput(props) { return <input {...props} style={{ width: "100%", boxSizing: "border-box", background: "rgba(243,234,216,0.05)", border: `1px solid ${HAIRLINE}`, borderRadius: 6, padding: "12px 14px", color: IVORY, fontSize: 15, fontFamily: "Karla, sans-serif", outline: "none", ...props.style }} />; }
 function PillButton({ active, onClick, children }) { return <button onClick={onClick} style={{ padding: "9px 16px", borderRadius: 999, fontSize: 13.5, cursor: "pointer", border: `1px solid ${active ? GOLD : HAIRLINE}`, background: active ? "rgba(217,169,74,0.14)" : "transparent", color: active ? GOLD : IVORY, fontFamily: "Karla, sans-serif" }}>{children}</button>; }
+function EditableList({ label, items, onAdd, onRemove }) {
+  const [val, setVal] = useState("");
+  const commit = () => { if (val.trim()) { onAdd(val.trim()); setVal(""); } };
+  return (
+    <Field label={label}>
+      {items.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {items.map((item, i) => (
+            <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "rgba(217,169,74,0.08)", border: `1px solid ${HAIRLINE}`, borderRadius: 999, padding: "4px 10px", fontSize: 12, color: IVORY }}>
+              {item}
+              <button onClick={() => onRemove(i)} style={{ background: "none", border: "none", color: SAGE, cursor: "pointer", padding: 0, fontSize: 13, lineHeight: 1 }}>&times;</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 6 }}>
+        <TextInput value={val} onChange={(e) => setVal(e.target.value)} placeholder={`Add...`} onKeyDown={(e) => e.key === "Enter" && commit()} />
+        <GhostButton onClick={commit}>Add</GhostButton>
+      </div>
+    </Field>
+  );
+}
 function PrimaryButton({ onClick, children, disabled, style }) { return <button onClick={onClick} disabled={disabled} style={{ width: "100%", padding: "15px 20px", borderRadius: 8, border: "none", background: disabled ? "rgba(196,101,46,0.35)" : CAMWOOD, color: IVORY, fontSize: 15, fontFamily: "Karla, sans-serif", fontWeight: 600, cursor: disabled ? "default" : "pointer", ...style }}>{children}</button>; }
 function GhostButton({ onClick, children, style }) { return <button onClick={onClick} style={{ padding: "12px 18px", borderRadius: 8, border: `1px solid ${HAIRLINE}`, background: "transparent", color: IVORY, fontSize: 14, fontFamily: "Karla, sans-serif", cursor: "pointer", ...style }}>{children}</button>; }
 function Header({ title, onBack }) { return <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>{onBack && <button onClick={onBack} style={{ background: "none", border: "none", color: SAGE, fontSize: 20, cursor: "pointer", padding: 0 }}>&larr;</button>}<h1 style={{ fontFamily: "Fraunces, serif", fontWeight: 500, fontSize: 22, color: IVORY, margin: 0 }}>{title}</h1></div>; }
@@ -599,9 +681,26 @@ function TarotArt({ name, size }) {
   return <svg viewBox="0 0 100 140" style={{ width: size || 64, height: (size || 64) * 1.4, display: "block" }}><rect x="1" y="1" width="98" height="138" rx="6" fill={INDIGO} stroke={color} strokeWidth="2" />{isMajor ? <polygon points="50,20 58,45 84,45 63,60 71,86 50,71 29,86 37,60 16,45 42,45" fill={color} opacity="0.85" /> : <circle cx="50" cy="52" r="22" fill="none" stroke={color} strokeWidth="4" />}<text x="50" y="122" textAnchor="middle" fontSize="9" fontFamily="Karla, sans-serif" fill={IVORY}>{name.length > 16 ? name.slice(0, 15) + "…" : name}</text></svg>;
 }
 function OduArt({ name, size }) {
-  const entry = ODU_256.find((o) => o.name === name) || { a: 0, b: 0 };
-  const marksA = oduMarks(entry.a), marksB = oduMarks(entry.b);
-  return <svg viewBox="0 0 100 140" style={{ width: size || 64, height: (size || 64) * 1.4, display: "block" }}><rect x="1" y="1" width="98" height="138" rx="6" fill={INK} stroke={GOLD} strokeWidth="2" />{[0, 1, 2, 3].map((row) => <g key={row}><rect x="28" y={20 + row * 14} width={marksA[row] ? "14" : "6"} height="4" fill={GOLD} />{marksA[row] ? <rect x="46" y={20 + row * 14} width="14" height="4" fill={GOLD} /> : null}<rect x="58" y={20 + row * 14} width={marksB[row] ? "14" : "6"} height="4" fill={GOLD} />{marksB[row] ? <rect x="76" y={20 + row * 14} width="14" height="4" fill={GOLD} /> : null}</g>)}<text x="50" y="122" textAnchor="middle" fontSize="8.5" fontFamily="Karla, sans-serif" fill={IVORY}>{name.length > 18 ? name.slice(0, 17) + "…" : name}</text></svg>;
+  const roots = ODU_LOOKUP.get(name) || [0, 0, 0];
+  const n = roots.length, colW = 24, gap = 6;
+  const x0 = (100 - (n * colW + (n - 1) * gap)) / 2;
+  const fontSize = name.length > 20 ? 6.2 : name.length > 15 ? 7.4 : 8.5;
+  return (
+    <svg viewBox="0 0 100 140" style={{ width: size || 64, height: (size || 64) * 1.4, display: "block" }}>
+      <rect x="1" y="1" width="98" height="138" rx="6" fill={INK} stroke={GOLD} strokeWidth="2" />
+      {roots.map((r, col) => {
+        const marks = oduMarks(r), cx = x0 + col * (colW + gap);
+        return (
+          <g key={col}>
+            {marks.map((bit, row) => bit
+              ? <g key={row}><rect x={cx} y={20 + row * 14} width="10" height="4" fill={GOLD} /><rect x={cx + 14} y={20 + row * 14} width="10" height="4" fill={GOLD} /></g>
+              : <rect key={row} x={cx + 7} y={20 + row * 14} width="10" height="4" fill={GOLD} />)}
+          </g>
+        );
+      })}
+      <text x="50" y="122" textAnchor="middle" fontSize={fontSize} fontFamily="Karla, sans-serif" fill={IVORY}>{name}</text>
+    </svg>
+  );
 }
 function CardArt({ tradition, name, size }) { return tradition === "tarot" ? <TarotArt name={name} size={size} /> : <OduArt name={name} size={size} />; }
 
@@ -627,7 +726,8 @@ function formatWait(hours) {
 }
 
 /* ---------- app ---------- */
-const emptyProfile = { name: "", agentName: "", plane: "", element: "", agentElement: "", dob: "", tob: "", pob: "", jargon: "simple", verbosity: "warm", tarotReversals: true, ifaReversalsExperimental: false, residentDimension: null, credits: CREDIT_MAX, lastCreditRefillAt: null, relayMode: false, relayForName: "", vesselInsights: {}, vesselPowers: {}, restHourEnabled: false, restHourStart: "", readingMode: "speed" };
+const emptyBirthOdu = { name: "", strengths: [], taboos: [], foodsToEat: [], foodsToAvoid: [], colorsToWear: [], colorsToAvoid: [], bestDays: [], worstDays: [], friendlyOdus: [], odusToAvoid: [], frictionOdus: [], easeOdus: [], animalsToKeep: [], animalsToAvoid: [], rituals: [], notes: "", lastUpdated: null };
+const emptyProfile = { name: "", agentName: "", plane: "", element: "", agentElement: "", dob: "", tob: "", pob: "", jargon: "simple", verbosity: "warm", tarotReversals: true, ifaReversalsExperimental: false, residentDimension: null, credits: CREDIT_MAX, lastCreditRefillAt: null, relayMode: false, relayForName: "", vesselInsights: {}, vesselPowers: {}, restHourEnabled: false, restHourStart: "", readingMode: "speed", birthOdu: emptyBirthOdu, dailyOutfit: null };
 
 function isStrategistResting(profile) {
   if (!profile.restHourEnabled || !profile.restHourStart) return { resting: false };
@@ -656,6 +756,10 @@ export default function Ifatarot() {
   const [isIOS, setIsIOS] = useState(false);
   const [profile, setProfile] = useState(emptyProfile);
   const [draftProfile, setDraftProfile] = useState(emptyProfile);
+  const [rootStep, setRootStep] = useState(null); // null = show form if birthOdu.name set, else ask; "ask" | "manual"
+  const [draftBirthOdu, setDraftBirthOdu] = useState(emptyBirthOdu);
+  const [outfitLoading, setOutfitLoading] = useState(false);
+  const [outfitError, setOutfitError] = useState(null);
   const [obStep, setObStep] = useState(0);
 
   const [dimKey, setDimKey] = useState(null);
@@ -675,6 +779,7 @@ export default function Ifatarot() {
   const [dimensionNotes, setDimensionNotes] = useState([]);
 
   const [libraryTradition, setLibraryTradition] = useState(null);
+  const [libraryOduGroup, setLibraryOduGroup] = useState("meta");
   const [cardDetail, setCardDetail] = useState(null);
   const [cardDetailBack, setCardDetailBack] = useState("library");
 
@@ -772,6 +877,58 @@ export default function Ifatarot() {
     }, 600);
     return () => clearTimeout(timer);
   }, [screen, dimKey, mode, assignment, question, resolved, reading, attachNoteId, strategistLog]);
+
+  function openTheRoot() {
+    const bo = profile.birthOdu && profile.birthOdu.name ? profile.birthOdu : emptyBirthOdu;
+    setDraftBirthOdu(bo);
+    setRootStep(bo.name ? null : "ask");
+    setScreen("the-root");
+  }
+  function drawPlaceholderOdu() {
+    const odu = ODU_4096[Math.floor(Math.random() * ODU_4096.length)];
+    setDraftBirthOdu({ ...emptyBirthOdu, name: odu.name });
+    setRootStep(null);
+  }
+  function birthOduListAdd(field, value) { setDraftBirthOdu((d) => ({ ...d, [field]: [...(d[field] || []), value] })); }
+  function birthOduListRemove(field, i) { setDraftBirthOdu((d) => ({ ...d, [field]: d[field].filter((_, idx) => idx !== i) })); }
+  async function saveBirthOdu() {
+    const updated = { ...profile, birthOdu: { ...draftBirthOdu, lastUpdated: new Date().toISOString() } };
+    setProfile(updated); setDraftProfile(updated);
+    try { await window.storage.set("ifatarot:profile", JSON.stringify(updated)); } catch (e) {}
+    go("home");
+  }
+
+  async function revealTodaysOutfit(force) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (!force && profile.dailyOutfit && profile.dailyOutfit.date === today) return;
+    if (!strategistGate() || !creditGate()) return;
+    setOutfitLoading(true); setOutfitError(null);
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setOutfitError("You're offline — today's outfit needs a connection. No consultation was used.");
+      setOutfitLoading(false);
+      return;
+    }
+    try {
+      const tradition = Math.random() < 0.5 ? "tarot" : "ifa";
+      const card = drawCard(tradition, tradition === "tarot" ? profile.tarotReversals : profile.ifaReversalsExperimental);
+      const bo = profile.birthOdu;
+      const colorHint = bo && bo.colorsToWear?.length ? ` Their birth odu's colors to favor: ${bo.colorsToWear.join(", ")}.${bo.colorsToAvoid?.length ? ` Colors to avoid: ${bo.colorsToAvoid.join(", ")}.` : ""}` : "";
+      const system = buildSystemPrompt(profile);
+      const user = `Today's card is ${card.name}${card.reversed ? " (reversed)" : ""} [${card.tradition === "tarot" ? "Tarot" : "Ifa"}]. Based on what this card represents, tell the seeker what to wear today — colors, textures, overall vibe (bold vs. quiet, structured vs. flowing) — and one concrete styling detail that channels the card. Practical and wearable, not abstract.${colorHint} Two or three sentences, plus the outfit note.`;
+      const { text } = await callAgentMessagesFull(system, [{ role: "user", content: user }], { maxTokens: 500, meta: { type: "reading", dimension: "outfit", cardNames: [{ tradition: card.tradition, name: card.name }], traditions: [card.tradition] } });
+      if (!text || !text.trim()) { setOutfitError("Nothing came through — no consultation was used. Try again in a moment."); setOutfitLoading(false); return; }
+      const entry = { date: today, card, advice: text };
+      const updated = { ...profile, dailyOutfit: entry };
+      setProfile(updated); setDraftProfile(updated);
+      try { await window.storage.set("ifatarot:profile", JSON.stringify(updated)); } catch (e) {}
+      await consumeCredit();
+      pushEvent("reading", { dimension: "outfit", traditions: [card.tradition], cardNames: [{ tradition: card.tradition, name: card.name }] });
+    } catch (e) {
+      const raw = e && e.message ? e.message : "";
+      const resolved = await describeGenerationError(raw);
+      setOutfitError(resolved || "Couldn't reach your strategist. Try again.");
+    } finally { setOutfitLoading(false); }
+  }
 
   async function dismissInstallCard() {
     setShowInstallCard(false);
@@ -1022,7 +1179,7 @@ export default function Ifatarot() {
 
     try {
       const system = buildSystemPrompt(profile);
-      const user = buildMultiPrompt(useDimKey, useMode.key, DIMENSIONS[useDimKey].label, useMode.title, positions, useQuestion);
+      const user = buildMultiPrompt(useDimKey, useMode.key, DIMENSIONS[useDimKey].label, useMode.title, positions, useQuestion, profile);
       const cardCount = positions.flatMap((p) => p.cards).length;
       const maxTokens = maxTokensForReading(cardCount, profile.verbosity);
       const meta = { type: "reading", dimension: useDimKey, mode: useMode.key, traditions: positions.flatMap((p) => p.cards.map((c) => c.tradition)), cardNames: positions.flatMap((p) => p.cards.map((c) => ({ tradition: c.tradition, name: c.name }))) };
@@ -1256,7 +1413,9 @@ export default function Ifatarot() {
               <PrimaryButton onClick={beginClicked}>Begin</PrimaryButton>
               <GhostButton onClick={() => go("library-root")}>Library</GhostButton>
               <GhostButton onClick={() => go("notes")}>Notes</GhostButton>
+              {onboarded && <GhostButton onClick={() => setScreen("todays-outfit")}>Today's Outfit</GhostButton>}
               {onboarded && <GhostButton onClick={() => setScreen("vessel")}>The Vessel</GhostButton>}
+              {onboarded && <GhostButton onClick={openTheRoot}>The Root</GhostButton>}
               <GhostButton onClick={() => { setDraftProfile(profile); setScreen("settings"); }}>Settings</GhostButton>
             </div>
             <BottomNav screen="home" go={go} />
@@ -1521,7 +1680,82 @@ export default function Ifatarot() {
                 <Field label="Reversed"><p style={{ fontSize: 14, lineHeight: 1.7 }}>{tarotMeaning(cardDetail.name).reversed}</p></Field>
               </div>
             ) : (
-              <p style={{ fontSize: 14, lineHeight: 1.7, color: SAGE }}>Full teaching for this odu hasn't been added yet — this card is a structural placeholder until verified odu content and artwork are ready.</p>
+              <div>
+                <p style={{ fontSize: 12, color: SAGE, marginBottom: 10, textAlign: "center" }}>{(oduRootNames(cardDetail.name) || []).join(" · ")}</p>
+                <p style={{ fontSize: 14, lineHeight: 1.7, color: SAGE }}>Full teaching for this odu hasn't been added yet — this card is a structural placeholder until verified odu content and artwork are ready.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {screen === "todays-outfit" && (() => {
+          const today = new Date().toISOString().slice(0, 10);
+          const outfit = profile.dailyOutfit && profile.dailyOutfit.date === today ? profile.dailyOutfit : null;
+          return (
+            <div>
+              <Header title="Today's Outfit" onBack={() => go("home")} />
+              <p style={{ fontSize: 13, color: SAGE, marginBottom: 20, lineHeight: 1.6 }}>One card each day, and what it says to wear. It stays put for the whole day — come back tomorrow for a new one.{profile.birthOdu && profile.birthOdu.colorsToWear?.length ? " Your own recorded colors are folded in." : ""}</p>
+              {outfit ? (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}><CardArt tradition={outfit.card.tradition} name={outfit.card.name} size={110} /></div>
+                  <div style={{ fontFamily: "Fraunces, serif", fontSize: 18, color: GOLD, textAlign: "center", marginBottom: 14 }}>{outfit.card.name}{outfit.card.reversed ? " · reversed" : ""}</div>
+                  <p style={{ fontSize: 15, lineHeight: 1.8, whiteSpace: "pre-wrap" }}>{outfit.advice}</p>
+                  <GhostButton style={{ width: "100%", boxSizing: "border-box", marginTop: 20 }} onClick={() => revealTodaysOutfit(true)}>{outfitLoading ? "Drawing..." : "Draw a different one (uses a consultation)"}</GhostButton>
+                </div>
+              ) : (
+                <PrimaryButton disabled={outfitLoading} onClick={() => revealTodaysOutfit(false)}>{outfitLoading ? "Drawing..." : "Reveal today's outfit"}</PrimaryButton>
+              )}
+              {outfitError && <p style={{ color: CAMWOOD, fontSize: 13, marginTop: 14 }}>{outfitError}</p>}
+              <BottomNav screen="todays-outfit" go={go} />
+            </div>
+          );
+        })()}
+
+        {screen === "the-root" && (
+          <div>
+            <Header title="The Root" onBack={() => go("home")} />
+            {rootStep === "ask" && (
+              <div>
+                <p style={{ fontSize: 14, color: IVORY, lineHeight: 1.7, marginBottom: 12 }}>Do you know your birth odu?</p>
+                <p style={{ fontSize: 12.5, color: SAGE, lineHeight: 1.6, marginBottom: 20 }}>A birth odu is determined by a babalawo through divination. The teaching that goes with it — taboos, rituals, foods, colors — is theirs to give, and it can differ by lineage. So this space stays empty until you fill it in yourself, and you can keep updating it as you learn more.</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <PrimaryButton onClick={() => setRootStep("manual")}>Yes — I'll enter it</PrimaryButton>
+                  <GhostButton onClick={drawPlaceholderOdu}>Not yet — draw a placeholder for now</GhostButton>
+                  <GhostButton onClick={() => go("home")}>Skip for now</GhostButton>
+                </div>
+                <p style={{ fontSize: 11.5, color: SAGE, lineHeight: 1.6, marginTop: 14 }}>A placeholder draw is just a random odu to hold the space — it is not your real birth odu, and nothing here treats it as one until you replace it.</p>
+              </div>
+            )}
+            {rootStep === "manual" && (
+              <div>
+                <Field label="Your birth odu"><TextInput placeholder="e.g. Ogbe Iwori" value={draftBirthOdu.name} onChange={(e) => setDraftBirthOdu({ ...draftBirthOdu, name: e.target.value })} /></Field>
+                <PrimaryButton disabled={!draftBirthOdu.name.trim()} onClick={() => setRootStep(null)}>Continue</PrimaryButton>
+              </div>
+            )}
+            {rootStep === null && (
+              <div>
+                <Field label="Birth odu"><TextInput value={draftBirthOdu.name} onChange={(e) => setDraftBirthOdu({ ...draftBirthOdu, name: e.target.value })} /></Field>
+                <p style={{ fontSize: 12, color: SAGE, lineHeight: 1.6, marginBottom: 20 }}>Everything below is yours to fill in — from your babalawo or your own lineage — and to change whenever you learn more. Your strategist will use what's here in every reading.</p>
+                <EditableList label="Strengths" items={draftBirthOdu.strengths} onAdd={(v) => birthOduListAdd("strengths", v)} onRemove={(i) => birthOduListRemove("strengths", i)} />
+                <EditableList label="Taboos (eewo)" items={draftBirthOdu.taboos} onAdd={(v) => birthOduListAdd("taboos", v)} onRemove={(i) => birthOduListRemove("taboos", i)} />
+                <EditableList label="Foods to eat" items={draftBirthOdu.foodsToEat} onAdd={(v) => birthOduListAdd("foodsToEat", v)} onRemove={(i) => birthOduListRemove("foodsToEat", i)} />
+                <EditableList label="Foods to avoid" items={draftBirthOdu.foodsToAvoid} onAdd={(v) => birthOduListAdd("foodsToAvoid", v)} onRemove={(i) => birthOduListRemove("foodsToAvoid", i)} />
+                <EditableList label="Colors to wear" items={draftBirthOdu.colorsToWear} onAdd={(v) => birthOduListAdd("colorsToWear", v)} onRemove={(i) => birthOduListRemove("colorsToWear", i)} />
+                <EditableList label="Colors to avoid" items={draftBirthOdu.colorsToAvoid} onAdd={(v) => birthOduListAdd("colorsToAvoid", v)} onRemove={(i) => birthOduListRemove("colorsToAvoid", i)} />
+                <EditableList label="Best days" items={draftBirthOdu.bestDays} onAdd={(v) => birthOduListAdd("bestDays", v)} onRemove={(i) => birthOduListRemove("bestDays", i)} />
+                <EditableList label="Worst days" items={draftBirthOdu.worstDays} onAdd={(v) => birthOduListAdd("worstDays", v)} onRemove={(i) => birthOduListRemove("worstDays", i)} />
+                <EditableList label="Friendly odus" items={draftBirthOdu.friendlyOdus} onAdd={(v) => birthOduListAdd("friendlyOdus", v)} onRemove={(i) => birthOduListRemove("friendlyOdus", i)} />
+                <EditableList label="Odus to avoid" items={draftBirthOdu.odusToAvoid} onAdd={(v) => birthOduListAdd("odusToAvoid", v)} onRemove={(i) => birthOduListRemove("odusToAvoid", i)} />
+                <EditableList label="Odus that cause friction" items={draftBirthOdu.frictionOdus} onAdd={(v) => birthOduListAdd("frictionOdus", v)} onRemove={(i) => birthOduListRemove("frictionOdus", i)} />
+                <EditableList label="Odus that bring ease" items={draftBirthOdu.easeOdus} onAdd={(v) => birthOduListAdd("easeOdus", v)} onRemove={(i) => birthOduListRemove("easeOdus", i)} />
+                <EditableList label="Animals to keep" items={draftBirthOdu.animalsToKeep} onAdd={(v) => birthOduListAdd("animalsToKeep", v)} onRemove={(i) => birthOduListRemove("animalsToKeep", i)} />
+                <EditableList label="Animals to avoid" items={draftBirthOdu.animalsToAvoid} onAdd={(v) => birthOduListAdd("animalsToAvoid", v)} onRemove={(i) => birthOduListRemove("animalsToAvoid", i)} />
+                <EditableList label="Rituals" items={draftBirthOdu.rituals} onAdd={(v) => birthOduListAdd("rituals", v)} onRemove={(i) => birthOduListRemove("rituals", i)} />
+                <Field label="Notes">
+                  <textarea value={draftBirthOdu.notes} onChange={(e) => setDraftBirthOdu({ ...draftBirthOdu, notes: e.target.value })} placeholder="Anything else you've been taught" style={{ width: "100%", minHeight: 90, boxSizing: "border-box", background: "rgba(243,234,216,0.05)", border: `1px solid ${HAIRLINE}`, borderRadius: 6, padding: 12, color: IVORY, fontSize: 14, fontFamily: "Karla, sans-serif", resize: "vertical", outline: "none" }} />
+                </Field>
+                <PrimaryButton onClick={saveBirthOdu}>Save</PrimaryButton>
+              </div>
             )}
           </div>
         )}
@@ -1573,23 +1807,42 @@ export default function Ifatarot() {
           <div>
             <Header title="Library" onBack={() => go("home")} />
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <GhostButton onClick={() => { setLibraryTradition("ifa"); setScreen("library-grid"); }}>Ifa &middot; 256 odu</GhostButton>
+              <GhostButton onClick={() => { setLibraryTradition("ifa"); setScreen("library-grid"); }}>Ifa &middot; 4,096 odu</GhostButton>
               <GhostButton onClick={() => { setLibraryTradition("tarot"); setScreen("library-grid"); }}>Tarot &middot; 78 cards</GhostButton>
             </div>
             <BottomNav screen="library-root" go={go} />
           </div>
         )}
 
-        {screen === "library-grid" && (
-          <div>
-            <Header title={libraryTradition === "ifa" ? "256 odu" : "78 cards"} onBack={() => setScreen("library")} />
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, maxHeight: 520, overflowY: "auto" }}>
-              {(libraryTradition === "ifa" ? ODU_256.map((o) => o.name) : TAROT_DECK).map((name) => (
-                <button key={name} onClick={() => openCardFromLibrary(libraryTradition, name)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}><CardArt tradition={libraryTradition} name={name} size={64} /></button>
-              ))}
+        {screen === "library-grid" && (() => {
+          const isIfa = libraryTradition === "ifa";
+          const names = !isIfa ? TAROT_DECK
+            : libraryOduGroup === "meji" ? ODU_MEJI.map((o) => o.name)
+            : libraryOduGroup === "meta" ? ODU_META_NAMES
+            : ODU_4096.filter((o) => o.a === libraryOduGroup).map((o) => o.name);
+          return (
+            <div>
+              <Header title={isIfa ? "4,096 odu" : "78 cards"} onBack={() => setScreen("library")} />
+              {isIfa && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                    <PillButton active={libraryOduGroup === "meji"} onClick={() => setLibraryOduGroup("meji")}>Meji · 16</PillButton>
+                    <PillButton active={libraryOduGroup === "meta"} onClick={() => setLibraryOduGroup("meta")}>Meta · 16</PillButton>
+                  </div>
+                  <div style={{ fontSize: 11, color: SAGE, marginBottom: 6 }}>Everything that begins with…</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {ODU_ROOT.map((r, i) => <PillButton key={r} active={libraryOduGroup === i} onClick={() => setLibraryOduGroup(i)}>{r}</PillButton>)}
+                  </div>
+                </div>
+              )}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, maxHeight: 520, overflowY: "auto" }}>
+                {names.map((name) => (
+                  <button key={name} onClick={() => openCardFromLibrary(libraryTradition, name)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}><CardArt tradition={libraryTradition} name={name} size={64} /></button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {screen === "strategist" && (
           <div>
