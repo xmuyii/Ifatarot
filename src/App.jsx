@@ -528,7 +528,7 @@ function buildOfflineFallback(positions) {
       return `${p.label} — ${c.name}${c.reversed ? " (reversed)" : ""}: ${c.reversed ? m.reversed : m.upright}`;
     }
     return `${p.label} — ${c.name}${c.reversed ? " (reversed)" : ""}: full teaching for this odu isn't written yet, so there's no offline meaning to show here.`;
-  }));
+  })); 
   return `You're offline, so here's the card's own written meaning rather than a reading tailored to your question — reconnect for that. No consultation was used.\n\n${lines.join("\n\n")}`;
 }
 async function callAgentMessagesFull(system, messages, opts) {
