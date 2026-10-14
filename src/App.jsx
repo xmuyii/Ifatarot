@@ -531,11 +531,6 @@ function buildOfflineFallback(positions) {
   }));
   return `You're offline, so here's the card's own written meaning rather than a reading tailored to your question — reconnect for that. No consultation was used.\n\n${lines.join("\n\n")}`;
 }
-function getDeviceId() {
-  let id = localStorage.getItem("ifatarot:device-id");
-  if (!id) { id = "dev-" + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("ifatarot:device-id", id); }
-  return id;
-}
 async function callAgentMessagesFull(system, messages, opts) {
   const maxTokens = (opts && opts.maxTokens) || 1200;
   const res = await fetch("/api/generate", {
