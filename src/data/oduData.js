@@ -1811,7 +1811,6 @@ export const ODU_256 = [
     "index": 255
   }
 ];
-
 export const MEJI_MARKS = {
   "Ogbe": ["II","II","II","II"],
   "Oyeku": ["II","II","II","I"],
@@ -1830,22 +1829,17 @@ export const MEJI_MARKS = {
   "Ofun": ["I","I","I","II"],
   "Ire": ["I","I","I","I"],
 };
-
-export function getMarksForOdu(oduName) {
-  const entry = ODU_256.find(o => o.name === oduName);
-  if(!entry) return [];
-  const m1 = MEJI_MARKS[entry.first] || [];
-  const m2 = MEJI_MARKS[entry.second] || [];
-  return [...m1, ...m2];
+export function getMarksForOdu(name) {
+  const e = ODU_256.find(o=>o.name===name);
+  if(!e) return [];
+  return [...(MEJI_MARKS[e.first]||[]), ...(MEJI_MARKS[e.second]||[])];
 }
-export function getMetaName(birthName, principalName) {
-  const birthEntry = ODU_256.find(o => o.name === birthName);
-  if(!birthEntry) return `${birthName} ${principalName}`;
-  if(birthEntry.isMeji && birthEntry.first === principalName) {
-    return `${principalName} Meta`;
-  }
-  return `${birthName} ${principalName}`;
+export function getMetaName(birth, princ) {
+  const be = ODU_256.find(o=>o.name===birth);
+  if(!be) return `${birth} ${princ}`;
+  if(be.isMeji && be.first===princ) return `${princ} Meta`;
+  return `${birth} ${princ}`;
 }
-export function get12Marks(birthName, principalName) {
-  return [...getMarksForOdu(birthName), ...(MEJI_MARKS[principalName]||[])];
+export function get12Marks(birth, princ) {
+  return [...getMarksForOdu(birth), ...(MEJI_MARKS[princ]||[])];
 }

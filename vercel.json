@@ -1,0 +1,7 @@
+
+{
+  "rewrites": [
+    { "source": "/tarot/:path*", "destination": "/tarot/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
