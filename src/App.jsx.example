@@ -1,0 +1,24 @@
+// Example: Replace your src/App.jsx with this wrapper to use the new Landing
+// If your current app logic is in App.jsx, rename it to AppMain.jsx first, then use this as App.jsx
+
+import { useState } from 'react'
+import LandingPage from './components/LandingPage.jsx'
+import AppMain from './AppMain.jsx' // <-- your existing reading app (rename old App.jsx to this)
+
+export default function App() {
+  const [entered, setEntered] = useState(
+    // remember if user already entered
+    () => localStorage.getItem('ifa_entered') === '1'
+  )
+
+  const handleEnter = () => {
+    localStorage.setItem('ifa_entered', '1')
+    setEntered(true)
+  }
+
+  if (!entered) {
+    return <LandingPage onEnter={handleEnter} />
+  }
+
+  return <AppMain />
+}
