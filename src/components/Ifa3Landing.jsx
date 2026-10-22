@@ -1,34 +1,102 @@
 
 import { useState } from 'react'
-import { ODU_256, MEJI_16, getMetaName, get12Marks } from '../data/oduData.js'
-import { getRandomTarot } from '../data/tarotData.js'
-import TarotCard from './TarotCard.jsx'
+import { randomTarot } from '../data/tarotData.js'
+import { ODU_ROOT, makeMetaName, make12Marks, getMejiMarks } from '../data/oduData.js'
+
 export default function Ifa3Landing({ onEnterTemple }) {
-  const [demo,setDemo]=useState(null)
-  const drop=()=>{
-    const meji=ODU_256.filter(o=>o.isMeji)
-    const birth=meji[Math.floor(Math.random()*meji.length)].name
-    const principal=MEJI_16[Math.floor(Math.random()*MEJI_16.length)]
-    setDemo({ birth, principal, meta:getMetaName(birth,principal), marks:get12Marks(birth,principal), tarot:getRandomTarot() })
+  const [demo, setDemo] = useState(null)
+  const [dropping, setDropping] = useState(false)
+
+  const dropDemo = () => {
+    setDropping(true)
+    setTimeout(()=>{
+      const b = Math.floor(Math.random()*16)
+      const p = Math.floor(Math.random()*16)
+      const metaName = makeMetaName(b,p)
+      const marks12 = make12Marks(b,p)
+      const tarot = randomTarot()
+      setDemo({ birth: b, principal: p, metaName, marks12, tarot })
+      setDropping(false)
+    }, 600)
   }
+
   return (
-    <div style={{ minHeight:'100vh', background:'#0A0A0F', color:'#FDF6E3', fontFamily:'Inter, sans-serif' }}>
-      <nav style={{ display:'flex', justifyContent:'space-between', padding:'16px 24px', borderBottom:'1px solid #1E1E2A', position:'sticky', top:0, background:'rgba(10,10,15,0.9)', backdropFilter:'blur(10px)', zIndex:10 }}>
-        <div style={{ letterSpacing:'0.25em', fontWeight:800, fontSize:13 }}>IFA 3.0 • ODU META • 4096 • VERCEL READY</div>
-        <div style={{ fontSize:11, opacity:0.5 }}>12 MARKS • REAL RIDER DECK</div>
-      </nav>
-      <div style={{ maxWidth:1100, margin:'0 auto', padding:'60px 24px', textAlign:'center' }}>
-        <div style={{ fontSize:11, letterSpacing:'0.35em', opacity:0.5 }}>BIRTH MEJI (8) + PRINCIPAL (4) = 12 IKIN</div>
-        <h1 style={{ fontFamily:'Georgia, serif', fontSize:'clamp(32px,6vw,62px)', lineHeight:1, margin:'16px 0 20px' }}>Ifa became Meta.<br/><span style={{ color:'#E8A44A' }}>4096 destinies. One mirror.</span></h1>
-        <p style={{ maxWidth:680, margin:'0 auto 28px', opacity:0.7, lineHeight:1.7 }}>Birth Meji (Eji Ogbe) + Principal (Oyeku) = Odu Meta. Oyeku Meji + Oyeku = Oyeku Meta. Oyeku Meji + Ose = Oyeku Meji Ose. 12 Ikin drop at once like babalawo. Spiritual root = 4096. Physical mirror = your real Rider card Coins01.jpg = Ace of Pentacles.</p>
-        <div style={{ display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap' }}>
-          <button onClick={onEnterTemple} style={{ background:'#E8A44A', color:'#0A0A0F', padding:'14px 28px', borderRadius:999, border:'none', fontWeight:800, cursor:'pointer' }}>Enter Temple →</button>
-          <button onClick={drop} style={{ background:'transparent', border:'1px solid #2A2A3A', color:'#FDF6E3', padding:'14px 28px', borderRadius:999, cursor:'pointer' }}>Drop Beads (Demo)</button>
+    <div style={{ minHeight:'100vh', background:'#0A0A0F', color:'#FDF6E3', fontFamily:'Karla, sans-serif' }}>
+      <div style={{ maxWidth:900, margin:'0 auto', padding:'40px 20px' }}>
+        <div style={{ textAlign:'center', marginBottom:40 }}>
+          <div style={{ fontSize:11, letterSpacing:'0.4em', opacity:0.5, marginBottom:12 }}>IFA 3.0 • 4096 ODUS • RIDER REAL DECK</div>
+          <h1 style={{ fontFamily:'serif', fontSize:48, color:'#D9A94A', margin:'0 0 12px' }}>Ifatarot</h1>
+          <p style={{ opacity:0.7, maxWidth:600, margin:'0 auto', lineHeight:1.6 }}>Birth Meji (8 marks) + Principal Meji (4 marks) = 12 marks. Drop simultaneous like babalawo beads. Every drop is a real Meta + a physical Rider mirror.</p>
         </div>
-        {demo && <div style={{ marginTop:40, background:'#0F0F14', border:'1px solid #1E1E2A', borderRadius:20, padding:20, display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(260px,1fr))', gap:20, textAlign:'left' }}>
-          <div><div style={{ fontSize:11, color:'#E8A44A', letterSpacing:'0.2em' }}>DEMO DROP</div><div style={{ fontFamily:'Georgia, serif', fontSize:24, marginTop:8 }}>{demo.birth} + {demo.principal} = {demo.meta}</div><div style={{ display:'flex', gap:4, flexWrap:'wrap', marginTop:12 }}>{demo.marks.map((m,i)=><span key={i} style={{ background:i<8?'#15151F':'#2A1E14', padding:'4px 8px', borderRadius:6, fontSize:11, border:'1px solid #2A2A3A' }}>{m}</span>)}</div></div>
-          <div style={{ display:'grid', placeItems:'center' }}><TarotCard fileName={demo.tarot.file} tarotName={demo.tarot.name} size="medium" /><div style={{ fontSize:11, opacity:0.5, marginTop:8 }}>{demo.tarot.name} ({demo.tarot.file})</div></div>
-        </div>}
+
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20, marginBottom:30 }}>
+          <div style={{ border:'1px solid #1E1E2A', borderRadius:12, padding:20, background:'rgba(243,234,216,0.03)' }}>
+            <div style={{ fontSize:12, color:'#8B9A7C', marginBottom:12 }}>IFA 3.0 LOGIC</div>
+            <div style={{ fontSize:13, lineHeight:1.8, opacity:0.8 }}>
+              <div>• Birth Meji = 8 marks (your root)</div>
+              <div>• Principal = 4 marks (the day's voice)</div>
+              <div>• 12 marks total like real Ikin</div>
+              <div>• Oyeku Meji + Oyeku = <b style={{color:'#D9A94A'}}>Oyeku Meta</b></div>
+              <div>• Oyeku Meji + Ose = <b style={{color:'#D9A94A'}}>Oyeku Meji Ose</b></div>
+            </div>
+            <div style={{ marginTop:16, display:'grid', gridTemplateColumns:'repeat(8, 1fr)', gap:4 }}>
+              {Array.from({length:12}).map((_,i)=>(
+                <div key={i} style={{ height:32, border:'1px solid #2A2A3A', borderRadius:4, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, background: i<8 ? 'rgba(217,169,74,0.1)' : 'rgba(196,101,46,0.1)' }}>{i<8 ? 'B' : 'P'}</div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ border:'1px solid #1E1E2A', borderRadius:12, padding:20, background:'rgba(243,234,216,0.03)' }}>
+            <div style={{ fontSize:12, color:'#8B9A7C', marginBottom:12 }}>RIDER REAL DECK • 78 CARDS</div>
+            <div style={{ fontSize:13, lineHeight:1.8, opacity:0.8 }}>
+              <div>• Coins01.jpg = Ace of Pentacles</div>
+              <div>• Cups01-14, Wands01-14, Swords01-14</div>
+              <div>• Major00-21 = Fool to World</div>
+              <div>• No renaming - uses your files AS-IS</div>
+              <div>• Served from <b style={{color:'#D9A94A'}}>/tarot/*.jpg</b></div>
+            </div>
+            <div style={{ marginTop:16, display:'flex', gap:6, flexWrap:'wrap' }}>
+              {["Coins01.jpg","Cups01.jpg","Wands01.jpg","Swords01.jpg","Major00.jpg"].map(f=><div key={f} style={{ fontSize:9, border:'1px solid #2A2A3A', padding:'2px 6px', borderRadius:99, opacity:0.6 }}>{f}</div>)}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ border:'1px solid #D9A94A', borderRadius:12, padding:20, marginBottom:30, background:'rgba(217,169,74,0.06)' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+            <div style={{ fontSize:13, fontWeight:600 }}>Try a demo drop (like babalawo beads)</div>
+            <button onClick={dropDemo} disabled={dropping} style={{ background: dropping ? '#333' : '#C4652E', color:'#fff', border:'none', padding:'8px 16px', borderRadius:8, cursor:'pointer' }}>{dropping ? 'Dropping...' : 'Drop Beads'}</button>
+          </div>
+          {demo && (
+            <div style={{ display:'grid', gridTemplateColumns:'120px 1fr 120px', gap:16, alignItems:'center' }}>
+              <div>
+                <div style={{ fontSize:11, opacity:0.5, marginBottom:6 }}>12 MARKS</div>
+                {demo.marks12.map((m,i)=>(
+                  <div key={i} style={{ display:'flex', gap:4, marginBottom:3 }}>
+                    {m[0]===1 ? <div style={{ width:20, height:4, background:'#D9A94A' }} /> : <><div style={{ width:8, height:4, background:'#D9A94A' }} /><div style={{ width:8, height:4, background:'#D9A94A' }} /></>}
+                    {m.length===1 ? null : null}
+                  </div>
+                ))}
+                <div style={{ fontSize:10, marginTop:6, color:'#D9A94A' }}>{demo.metaName}</div>
+              </div>
+              <div style={{ textAlign:'center' }}>
+                <div style={{ fontSize:11, opacity:0.5 }}>BIRTH + PRINCIPAL</div>
+                <div style={{ fontSize:14, marginTop:6 }}>{ODU_ROOT[demo.birth]} Meji + {ODU_ROOT[demo.principal]} =</div>
+                <div style={{ fontSize:16, color:'#D9A94A', fontWeight:600, marginTop:4 }}>{demo.metaName}</div>
+              </div>
+              <div>
+                <div style={{ width:80, height:120, background:'#1E1E2A', borderRadius:8, overflow:'hidden', border:'1px solid #2A2A3A' }}>
+                  <img src={demo.tarot.path} alt={demo.tarot.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} onError={(e)=>{e.target.style.display='none'}} />
+                </div>
+                <div style={{ fontSize:10, marginTop:6 }}>{demo.tarot.name}</div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ textAlign:'center' }}>
+          <button onClick={onEnterTemple} style={{ background:'#D9A94A', color:'#0A0A0F', border:'none', padding:'18px 40px', borderRadius:999, fontSize:16, fontWeight:700, cursor:'pointer', letterSpacing:'0.05em' }}>ENTER TEMPLE →</button>
+          <div style={{ fontSize:11, opacity:0.4, marginTop:12 }}>Your 8 credits / 3h refill still enforced on Railway</div>
+        </div>
       </div>
     </div>
   )

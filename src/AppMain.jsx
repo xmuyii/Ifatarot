@@ -1,57 +1,112 @@
 
-import { useState } from 'react'
-import { ODU_256, MEJI_16, getMetaName, get12Marks } from './data/oduData.js'
-import { getRandomTarot } from './data/tarotData.js'
-import TarotCard from './components/TarotCard.jsx'
+import React, { useState } from "react"
+import { ODU_ROOT, makeMetaName, make12Marks } from "./data/oduData.js"
+import { randomTarot } from "./data/tarotData.js"
+import TarotCard from "./components/TarotCard.jsx"
 
-export default function AppMain() {
-  const [reading,setReading]=useState(null)
-  const [loading,setLoading]=useState(false)
-  const [question,setQuestion]=useState('')
-  const [result,setResult]=useState(null)
+const INK = "#0D0F1E"
+const GOLD = "#D9A94A"
+const IVORY = "#FDF6E3"
+const HAIRLINE = "rgba(243,234,216,0.14)"
 
-  const dropBeads = async () => {
-    setLoading(true); setResult(null);
-    const meji=ODU_256.filter(o=>o.isMeji)
-    const birth=meji[Math.floor(Math.random()*meji.length)].name
-    const principal=MEJI_16[Math.floor(Math.random()*MEJI_16.length)]
-    const metaName=getMetaName(birth,principal)
-    const marks12=get12Marks(birth,principal)
-    const metaIndex=ODU_256.findIndex(o=>o.name===birth)*16 + MEJI_16.indexOf(principal)
-    const tarot=getRandomTarot()
-    const local={ birth, principal, metaName, marks12, metaIndex, tarot, question }
-    setReading(local)
-    try {
-      const res=await fetch('/api/generate', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ birth, principal, metaName, marks12, metaIndex, tarotFile:tarot.file, tarotName:tarot.name, question }) })
-      const data=await res.json()
-      setResult(data)
-    } catch(e) { setResult({ reading: `Fallback: ${birth} + ${principal} = ${metaName} with ${tarot.name} (${tarot.file}). ${e.message}` }) }
-    finally { setLoading(false) }
+export default function AppMain(){
+  const [birth, setBirth] = useState(0)
+  const [principal, setPrincipal] = useState(1)
+  const [result, setResult] = useState(null)
+  const [reading, setReading] = useState("")
+  const [loading, setLoading] = useState(false)
+
+  const drop = async () => {
+    const b = birth
+    const p = principal
+    const metaName = makeMetaName(b,p)
+    const marks12 = make12Marks(b,p)
+    const tarot = randomTarot()
+    
+    const newResult = { birth: b, principal: p, metaName, marks12, tarot }
+    setResult(newResult)
+    setLoading(true)
+    setReading("")
+
+    try{
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type":"application/json" },
+        body: JSON.stringify({
+          birth: ODU_ROOT[b],
+          principal: ODU_ROOT[p],
+          birthIndex: b,
+          principalIndex: p,
+          metaName,
+          marks12,
+          tarotFile: tarot.file,
+          tarotName: tarot.name,
+          tarotPath: tarot.path
+        })
+      })
+      const data = await res.json()
+      setReading(data.text || data.reading || "No reading returned - check server.js ANTHROPIC_API_KEY")
+    }catch(e){
+      setReading("Offline fallback: " + metaName + " - Birth " + ODU_ROOT[b] + " Meji + " + ODU_ROOT[p] + " mirror " + tarot.name + ". " + e.message)
+    }finally{
+      setLoading(false)
+    }
+  }
+
+  const randomDrop = () => {
+    setBirth(Math.floor(Math.random()*16))
+    setPrincipal(Math.floor(Math.random()*16))
+    setTimeout(drop, 100)
   }
 
   return (
-    <div style={{ minHeight:'100vh', background:'#0A0A0F', color:'#FDF6E3', padding:'32px 20px' }}>
-      <div style={{ maxWidth:1000, margin:'0 auto' }}>
-        <h2 style={{ fontFamily:'Georgia, serif', fontSize:28, textAlign:'center' }}>Ifa 3.0 — Drop Beads (Vercel)</h2>
-        <p style={{ textAlign:'center', opacity:0.6, fontSize:13, marginTop:8 }}>12 Ikin Marks • Real Rider deck Coins01.jpg = Ace of Pentacles • /api/generate serverless</p>
-        <div style={{ maxWidth:500, margin:'24px auto', display:'flex', gap:8 }}>
-          <input value={question} onChange={e=>setQuestion(e.target.value)} placeholder="Ask what destiny asks now (optional)" style={{ flex:1, background:'#15151F', border:'1px solid #2A2A3A', borderRadius:999, padding:'12px 18px', color:'#FDF6E3' }} />
-          <button onClick={dropBeads} disabled={loading} style={{ background:'#E8A44A', color:'#0A0A0F', padding:'12px 22px', borderRadius:999, border:'none', fontWeight:800, cursor:'pointer' }}>{loading?'Dropping...':'Drop Beads'}</button>
+    <div style={{ background:"#0A0A0F", minHeight:"100vh", padding:"20px", color:IVORY, fontFamily:"Karla, sans-serif" }}>
+      <div style={{ maxWidth:600, margin:"0 auto" }}>
+        <h2 style={{ fontFamily:"serif", color:GOLD }}>Drop Beads - Ifa 3.0 Meta</h2>
+        
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, margin:"20px 0" }}>
+          <div>
+            <div style={{ fontSize:12, opacity:0.5, marginBottom:6 }}>BIRTH MEJI (8 marks)</div>
+            <select value={birth} onChange={e=>setBirth(Number(e.target.value))} style={{ width:"100%", padding:10, background:"#1E1E2A", color:IVORY, border:`1px solid ${HAIRLINE}`, borderRadius:8 }}>
+              {ODU_ROOT.map((n,i)=><option key={i} value={i}>{i===0 ? "Eji Ogbe" : `${n} Meji`}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize:12, opacity:0.5, marginBottom:6 }}>PRINCIPAL (4 marks)</div>
+            <select value={principal} onChange={e=>setPrincipal(Number(e.target.value))} style={{ width:"100%", padding:10, background:"#1E1E2A", color:IVORY, border:`1px solid ${HAIRLINE}`, borderRadius:8 }}>
+              {ODU_ROOT.map((n,i)=><option key={i} value={i}>{ODU_ROOT[i]}</option>)}
+            </select>
+          </div>
         </div>
-        {reading && <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px,1fr))', gap:24, marginTop:32 }}>
-          <div style={{ background:'#0F0F14', border:'1px solid #1E1E2A', borderRadius:20, padding:20 }}>
-            <div style={{ fontSize:11, color:'#E8A44A', letterSpacing:'0.2em' }}>SPIRITUAL ROOT — 12 IKIN</div>
-            <div style={{ fontFamily:'Georgia, serif', fontSize:22, marginTop:10 }}>{reading.birth} + {reading.principal} = {reading.metaName}</div>
-            <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginTop:12 }}>{reading.marks12.map((m,i)=><span key={i} style={{ background:i<8?'#15151F':'#2A1E14', border:'1px solid #2A2A3A', padding:'6px 10px', borderRadius:8, fontSize:12 }}>{m}</span>)}</div>
-            <div style={{ fontSize:11, opacity:0.4, marginTop:10 }}>Index {reading.metaIndex} / 4096 • {reading.marks12.slice(0,8).join(' ')} | {reading.marks12.slice(8).join(' ')}</div>
+
+        <div style={{ display:"flex", gap:10, marginBottom:20 }}>
+          <button onClick={drop} style={{ flex:1, background:"#C4652E", color:"#fff", border:"none", padding:14, borderRadius:8, cursor:"pointer", fontWeight:600 }}>Drop Beads</button>
+          <button onClick={randomDrop} style={{ flex:1, background:"transparent", color:IVORY, border:`1px solid ${HAIRLINE}`, padding:14, borderRadius:8, cursor:"pointer" }}>Random 12-Mark</button>
+        </div>
+
+        {result && (
+          <div style={{ border:`1px solid ${HAIRLINE}`, borderRadius:12, padding:16, background:"rgba(243,234,216,0.03)" }}>
+            <div style={{ display:"grid", gridTemplateColumns:"100px 1fr 120px", gap:16 }}>
+              <div>
+                {result.marks12.map((m,i)=>(
+                  <div key={i} style={{ display:"flex", gap:3, marginBottom:4, opacity: i<8 ? 1 : 0.6 }}>
+                    {m[0]===1 ? <div style={{ width:24, height:4, background:GOLD }} /> : <><div style={{ width:10, height:4, background:GOLD }} /><div style={{ width:10, height:4, background:GOLD }} /></>}
+                  </div>
+                ))}
+                <div style={{ fontSize:11, color:GOLD, marginTop:8 }}>{result.metaName}</div>
+              </div>
+              <div>
+                <div style={{ fontSize:12, opacity:0.5 }}>META</div>
+                <div style={{ fontSize:18, color:GOLD, fontWeight:600 }}>{result.metaName}</div>
+                <div style={{ fontSize:13, marginTop:8, opacity:0.8 }}>{ODU_ROOT[result.birth]} Meji + {ODU_ROOT[result.principal]} = 12 marks</div>
+                <div style={{ fontSize:13, marginTop:12 }}>{loading ? "Consulting strategist..." : reading}</div>
+              </div>
+              <div>
+                <TarotCard file={result.tarot.file} name={result.tarot.name} />
+              </div>
+            </div>
           </div>
-          <div style={{ background:'#0F0F14', border:'1px solid #1E1E2A', borderRadius:20, padding:20, display:'grid', placeItems:'center' }}>
-            <div style={{ fontSize:11, opacity:0.5, marginBottom:10 }}>PHYSICAL MIRROR — RIDER TAROT • AYE</div>
-            <TarotCard fileName={reading.tarot.file} tarotName={reading.tarot.name} size="large" />
-            <div style={{ fontSize:12, opacity:0.6, marginTop:10, textAlign:'center' }}>{reading.tarot.name} • {reading.tarot.file}</div>
-          </div>
-        </div>}
-        {result && <div style={{ marginTop:24, background:'linear-gradient(160deg, #15151F, #1A1610)', border:'1px solid #2A2A3A', borderRadius:20, padding:24 }}><div style={{ fontSize:11, color:'#E8A44A', letterSpacing:'0.2em' }}>FUSION — ODU + CARD + ITAN + IMORAN</div><div style={{ marginTop:12, whiteSpace:'pre-wrap', lineHeight:1.7, fontSize:14 }}>{result.reading}</div></div>}
+        )}
       </div>
     </div>
   )
