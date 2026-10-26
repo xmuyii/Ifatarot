@@ -1,7 +1,7 @@
-
 {
-  "rewrites": [
-    { "source": "/tarot/:path*", "destination": "/tarot/:path*" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+  "functions": {
+    "api/generate.js": {
+      "maxDuration": 30
+    }
+  }
 }
