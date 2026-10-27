@@ -241,32 +241,31 @@ function findOduConnections(resolved) {
 
 /* ---------- storage ---------- */
 async function safeGet(key) {
-  try { 
-    // Try window.storage first (if available), fallback to localStorage
-    if (window.storage && window.storage.get) {
+  try {
+    if (typeof window !== "undefined" && window.storage && window.storage.get) {
       try { const r = await window.storage.get(key); if (r && r.value) return r.value; } catch(e) {}
     }
-    return localStorage.getItem(key); 
+    if (typeof localStorage !== "undefined") return localStorage.getItem(key);
+    return null;
   } catch (e) { return null; }
 }
 async function safeSet(key, value) {
   try {
-    if (window.storage && safeSet) {
+    if (typeof window !== "undefined" && window.storage && safeSet) {
       try { await safeSet(key, value); } catch(e) {}
     }
-    localStorage.setItem(key, value);
-    // Also sync to backend for cross-deploy persistence
-    try {
-      const deviceId = localStorage.getItem("ifatarot:device-id");
-      if (key === "ifatarot:profile" && deviceId) {
-        fetch("/api/profile", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Device-Id": deviceId },
-          body: JSON.stringify({ profile: JSON.parse(value) })
-        }).catch(()=>{});
-      }
-    } catch(e) {}
+    if (typeof localStorage !== "undefined") localStorage.setItem(key, value);
   } catch (e) {}
+  try {
+    const deviceId = typeof localStorage !== "undefined" ? localStorage.getItem("ifatarot:device-id") : null;
+    if (key === "ifatarot:profile" && deviceId) {
+      fetch("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Device-Id": deviceId },
+        body: JSON.stringify({ profile: JSON.parse(value) })
+      }).catch(()=>{});
+    }
+  } catch(e) {}
 }
 async function pushEvent(type, extra) {
   try {
@@ -508,11 +507,17 @@ function buildOfflineFallback(positions) {
   const lines = positions.flatMap((p) => p.cards.map((c) => {
     if (c.tradition === "tarot") {
       const m = tarotMeaning(c.name);
-      return `${p.label} — ${c.name}${c.reversed ? " (reversed)" : ""}: ${c.reversed ? m.reversed : m.upright}`;
+      return `${p.label} — ${c.name}${c.reversed ? " (reversed)" : ""}: ${c.reversed ? m.reversed : m.upright}. Energy: ${c.reversed ? "blocked or internalized, need to reflect" : "open and active for growth"}.`;
     }
-    return `${p.label} — ${c.name}${c.reversed ? " (reversed)" : ""}: full teaching for this odu isn't written yet, so there's no offline meaning to show here.`;
+    const oduInfo = oduEntry(c.name);
+    const tier = oduInfo ? oduInfo.tier : "unknown";
+    return `${p.label} — ${c.name} (${tier}): Odu of ${c.name.split(" ")[0]} energy. For growth this week, this brings ${p.label.toLowerCase().includes("opportunity") ? "opportunity" : p.label.toLowerCase().includes("challenge") ? "challenge to transform" : "guidance"}. Physical anchor: ${positions.find(x=>x.realm==="physical")?.cards[0]?.name || "see below"}.`;
   }));
-  return `You're offline, so here's the card's own written meaning rather than a reading tailored to your question — reconnect for that. No consultation was used.\n\n${lines.join("\n\n")}`;
+  const spiritual = positions.filter(p=>p.realm==="spiritual");
+  const physical = positions.filter(p=>p.realm==="physical");
+  const growthLine = spiritual.length ? `\n\nGROWTH ENERGIES THIS WEEK: ${spiritual.map(p=>`${p.label} (${p.cards[0].name})`).join(", ")}. These show spiritual currents for growth.` : "";
+  const oppLine = physical.length ? `\nOPPORTUNITY (Physical): ${physical.map(p=>`${p.label} - ${p.cards[0].name}${p.cards[0].reversed?" reversed":""}`).join(", ")}. This is your physical manifestation anchor.` : "";
+  return `Offline reading - card meanings (AI strategist unavailable, no consultation used):\n\n${lines.join("\n\n")}${growthLine}${oppLine}`;
 }
 // duplicate getDeviceId removed
 
@@ -522,19 +527,24 @@ async function callAgentMessagesFull(system, messages, opts) {
     method: "POST", headers: { "Content-Type": "application/json", "X-Device-Id": getDeviceId() },
     body: JSON.stringify({ max_tokens: maxTokens, system, messages, internal: !!(opts && opts.internal), meta: (opts && opts.meta) || undefined }),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (res.status === 429) throw new Error(data.error || "Rate limited");
-  if (data.error) throw new Error(data.error);
-  const content = data.content || [];
-  const text = content.map((b) => b.text || "").join("\n").trim();
+  if (!res.ok) {
+    console.error("Generate failed:", data);
+    throw new Error(data.error || `API ${res.status} failed - check Vercel logs`);
+  }
+  const block = data.content && data.content[0];
+  const text = block && block.text ? block.text : "";
   if (!text) {
-    throw new Error(data.error || "Gemini returned empty - check Vercel logs at Functions -> /api/generate -> Logs");
+    console.error("Empty response:", data);
+    throw new Error(data.error || "Gemini returned empty - check Vercel logs /api/generate");
   }
   return { text, truncated: data.stop_reason === "max_tokens" };
 }
+
 async function callAgentMessages(system, messages, opts) {
-  const { text } = await callAgentMessagesFull(system, messages, opts);
-  return text;
+  const result = await callAgentMessagesFull(system, messages, opts);
+  return typeof result === "string" ? result : result.text;
 }
 async function callAgent(system, user, opts) { return callAgentMessages(system, [{ role: "user", content: user }], opts); }
 
@@ -1307,8 +1317,11 @@ export default function Ifatarot() {
     } catch (e) {
       const raw = e && e.message ? e.message : "";
       const resolved = await describeGenerationError(raw);
-      setError(resolved && resolved !== raw ? resolved : `Couldn't reach your strategist.${raw ? ` ${raw}` : ""} Try again — no consultation was used.`);
-      setReadingFailed(true);
+      const fallback = buildOfflineFallback(positions);
+      // Always show something, even if Gemini fails - offline meaning + error
+      setReading(fallback + `\n\n---\n\nNote: Live AI strategist unavailable (${resolved || raw || "Unknown"}). Showing card meanings instead. No consultation was used for AI, check Vercel logs /api/generate for Gemini error.`);
+      setError(resolved && resolved !== raw ? resolved : `Live AI failed: ${raw ? ` ${raw}` : ""} - Showing card meanings. Check Vercel Functions -> /api/generate -> Logs for Gemini error. Try again — no consultation was used for failed attempt.`);
+      setReadingFailed(false);
       setLoading(false);
     }
   }
