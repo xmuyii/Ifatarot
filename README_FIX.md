@@ -1,1 +1,0 @@
-# Fix\n1. Copy src/components/LandingPage.jsx over your file\n2. Copy src/App.jsx over your App.jsx (make sure AppMain.jsx exists - rename old App.jsx to AppMain.jsx first if you haven't)\n3. npm run dev\n

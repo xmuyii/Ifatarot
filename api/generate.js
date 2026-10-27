@@ -1,76 +1,100 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-
 export default async function handler(req, res) {
+  // CORS
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Device-Id");
+  if (req.method === "OPTIONS") return res.status(200).end();
+  
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
   const { system, messages, max_tokens } = req.body || {};
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
 
-  if (!process.env.GEMINI_API_KEY) {
-    return res.status(500).json({ error: "GEMINI_API_KEY not set in Vercel env. Add it in Settings -> Environment Variables" });
+  console.log("Generate called, has key:", !!apiKey, "key length:", apiKey.length);
+
+  if (!apiKey) {
+    return res.status(500).json({ error: "GEMINI_API_KEY not set in Vercel. Go to Settings -> Environment Variables and add it" });
   }
 
   try {
-    const modelName = process.env.GEMINI_MODEL || "gemini-1.5-flash";
-    const model = genAI.getGenerativeModel({ 
-      model: modelName,
-      systemInstruction: system ? system + "\n\nIMPORTANT: Always address the seeker's growth energies, opportunity, and next steps clearly. For each position, name the energy present. End with a short synthesis about growth and opportunity this week." : "You are Ifatarot, a wise divination guide blending Ifa and Tarot. Always address growth energies and opportunity."
-    });
+    const genAI = new GoogleGenerativeAI(apiKey);
+    
+    const modelsToTry = [
+      process.env.GEMINI_MODEL,
+      "gemini-2.0-flash",
+      "gemini-1.5-flash",
+      "gemini-1.5-flash-latest",
+      "gemini-pro"
+    ].filter(Boolean);
 
     let prompt = "";
     if (messages && messages.length) {
       const last = messages[messages.length - 1];
       prompt = last.content || "";
-      if (messages.length > 1) {
-        const history = messages.slice(0, -1).map(m => `${m.role}: ${m.content}`).join("\n");
-        prompt = `${history}\n\nCurrent reading request:\n${prompt}`;
+    }
+    if (!prompt.trim()) prompt = "Provide Ifa and Tarot reading";
+
+    console.log("Prompt length:", prompt.length);
+
+    let lastError = null;
+    let finalText = "";
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Trying model: ${modelName}`);
+        const model = genAI.getGenerativeModel({ 
+          model: modelName,
+          systemInstruction: system ? { role: "system", parts: [{ text: system.substring(0, 8000) }] } : undefined
+        });
+
+        const result = await model.generateContent({
+          contents: [{ role: "user", parts: [{ text: prompt.substring(0, 15000) }] }],
+          generationConfig: { 
+            maxOutputTokens: Math.min(max_tokens || 1500, 2000), 
+            temperature: 0.85
+          }
+        });
+
+        const response = result.response;
+        finalText = response.text();
+        
+        if (finalText && finalText.trim()) {
+          console.log(`SUCCESS with ${modelName}, text length: ${finalText.length}`);
+          break;
+        }
+      } catch (e) {
+        console.error(`Model ${modelName} failed:`, e.message);
+        lastError = e;
+        continue;
       }
     }
 
-    if (!prompt.trim()) {
-      prompt = "Provide a general Ifa and Tarot reading about growth and opportunity.";
-    }
-
-    if (prompt.toLowerCase().includes("growth") || prompt.toLowerCase().includes("opportunity") || prompt.toLowerCase().includes("week")) {
-      prompt += "\n\nIMPORTANT: Specifically call out what energies are present for growth and opportunity this week. Name them clearly.";
-    }
-
-    const result = await model.generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { 
-        maxOutputTokens: max_tokens || 2000, 
-        temperature: 0.9,
-        topP: 0.9
+    if (!finalText || !finalText.trim()) {
+      const errMsg = lastError ? lastError.message : "All models returned empty";
+      console.error("All models failed:", errMsg);
+      
+      // Return a helpful error that frontend will display
+      if (errMsg.includes("API key") || errMsg.includes("fetching") || errMsg.includes("models") || errMsg.includes("400")) {
+        return res.status(500).json({ 
+          error: `Gemini error: ${errMsg}. FIX: 1) Enable API at https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com 2) Create new key at https://aistudio.google.com/app/apikey in NEW project 3) Add to Vercel env` 
+        });
       }
-    });
-
-    const response = result.response;
-    let text = "";
-    
-    try {
-      text = response.text();
-    } catch (e) {
-      const candidates = response.candidates;
-      if (candidates && candidates[0] && candidates[0].content && candidates[0].content.parts) {
-        text = candidates[0].content.parts.map(p => p.text || "").join("");
-      }
+      
+      return res.status(500).json({ error: `Gemini failed after trying ${modelsToTry.join(", ")}: ${errMsg}` });
     }
 
-    if (!text || !text.trim()) {
-      console.error("Empty response from Gemini:", JSON.stringify(response, null, 2));
-      return res.status(500).json({ error: "Gemini returned empty response, try again" });
-    }
-
+    console.log("Returning text, length:", finalText.length);
     return res.status(200).json({
-      content: [{ text: text.trim() }],
+      content: [{ text: finalText.trim() }],
       stop_reason: "stop"
     });
 
   } catch (e) {
-    console.error("Gemini error:", e);
-    return res.status(500).json({ error: e.message || "Gemini generation failed" });
+    console.error("Top-level error:", e);
+    return res.status(500).json({ error: e.message || "Gemini generation failed", stack: e.stack });
   }
 }

@@ -241,14 +241,39 @@ function findOduConnections(resolved) {
 
 /* ---------- storage ---------- */
 async function safeGet(key) {
-  try { const r = await window.storage.get(key); return r ? r.value : null; } catch (e) { return null; }
+  try { 
+    // Try window.storage first (if available), fallback to localStorage
+    if (window.storage && window.storage.get) {
+      try { const r = await window.storage.get(key); if (r && r.value) return r.value; } catch(e) {}
+    }
+    return localStorage.getItem(key); 
+  } catch (e) { return null; }
+}
+async function safeSet(key, value) {
+  try {
+    if (window.storage && safeSet) {
+      try { await safeSet(key, value); } catch(e) {}
+    }
+    localStorage.setItem(key, value);
+    // Also sync to backend for cross-deploy persistence
+    try {
+      const deviceId = localStorage.getItem("ifatarot:device-id");
+      if (key === "ifatarot:profile" && deviceId) {
+        fetch("/api/profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Device-Id": deviceId },
+          body: JSON.stringify({ profile: JSON.parse(value) })
+        }).catch(()=>{});
+      }
+    } catch(e) {}
+  } catch (e) {}
 }
 async function pushEvent(type, extra) {
   try {
     const raw = await safeGet("ifatarot:events");
     const list = raw ? JSON.parse(raw) : [];
     list.push({ type, date: new Date().toISOString(), ...extra });
-    await window.storage.set("ifatarot:events", JSON.stringify(list.slice(-500)));
+    await safeSet("ifatarot:events", JSON.stringify(list.slice(-500)));
   } catch (e) {}
 }
 function getDeviceId() {
@@ -500,7 +525,11 @@ async function callAgentMessagesFull(system, messages, opts) {
   const data = await res.json();
   if (res.status === 429) throw new Error(data.error || "Rate limited");
   if (data.error) throw new Error(data.error);
-  const text = (data.content || []).map((b) => b.text || "").join("\n").trim();
+  const content = data.content || [];
+  const text = content.map((b) => b.text || "").join("\n").trim();
+  if (!text) {
+    throw new Error(data.error || "Gemini returned empty - check Vercel logs at Functions -> /api/generate -> Logs");
+  }
   return { text, truncated: data.stop_reason === "max_tokens" };
 }
 async function callAgentMessages(system, messages, opts) {
@@ -855,7 +884,7 @@ export default function Ifatarot() {
         const c = computeCredits(parsed);
         parsed = { ...parsed, credits: c.credits, lastCreditRefillAt: c.lastCreditRefillAt };
         setProfile(parsed); setDraftProfile(parsed); setOnboarded(true);
-        try { await window.storage.set("ifatarot:profile", JSON.stringify(parsed)); } catch (e) {}
+        try { await safeSet("ifatarot:profile", JSON.stringify(parsed)); } catch (e) {}
       }
       const admin = await safeGet("ifatarot:is-admin");
       if (admin === "1") setIsAdminDevice(true);
@@ -912,7 +941,7 @@ export default function Ifatarot() {
     if (!hasSomethingToResume) return;
     const timer = setTimeout(() => {
       const session = { screen, dimKey, modeKey: mode ? mode.key : null, assignment, question, resolved, reading, attachNoteId, strategistLog, savedAt: Date.now() };
-      window.storage.set("ifatarot:session", JSON.stringify(session)).catch(() => {});
+      safeSet("ifatarot:session", JSON.stringify(session)).catch(() => {});
     }, 600);
     return () => clearTimeout(timer);
   }, [screen, dimKey, mode, assignment, question, resolved, reading, attachNoteId, strategistLog]);
@@ -933,7 +962,7 @@ export default function Ifatarot() {
   async function saveBirthOdu() {
     const updated = { ...profile, birthOdu: { ...draftBirthOdu, lastUpdated: new Date().toISOString() } };
     setProfile(updated); setDraftProfile(updated);
-    try { await window.storage.set("ifatarot:profile", JSON.stringify(updated)); } catch (e) {}
+    try { await safeSet("ifatarot:profile", JSON.stringify(updated)); } catch (e) {}
     go("home");
   }
 
@@ -959,7 +988,7 @@ export default function Ifatarot() {
       const entry = { date: today, card, advice: text };
       const updated = { ...profile, dailyOutfit: entry };
       setProfile(updated); setDraftProfile(updated);
-      try { await window.storage.set("ifatarot:profile", JSON.stringify(updated)); } catch (e) {}
+      try { await safeSet("ifatarot:profile", JSON.stringify(updated)); } catch (e) {}
       await consumeCredit();
       pushEvent("reading", { dimension: "outfit", traditions: [card.tradition], cardNames: [{ tradition: card.tradition, name: card.name }] });
     } catch (e) {
@@ -971,7 +1000,7 @@ export default function Ifatarot() {
 
   async function dismissInstallCard() {
     setShowInstallCard(false);
-    try { await window.storage.set("ifatarot:install-dismissed", "1"); } catch (e) {}
+    try { await safeSet("ifatarot:install-dismissed", "1"); } catch (e) {}
   }
   async function triggerInstall() {
     if (installPromptEvent) { installPromptEvent.prompt(); await installPromptEvent.userChoice; setInstallPromptEvent(null); }
@@ -1016,7 +1045,7 @@ export default function Ifatarot() {
     const c = computeCredits(profile);
     const updated = { ...profile, credits: Math.max(0, c.credits - 1), lastCreditRefillAt: c.lastCreditRefillAt };
     setProfile(updated);
-    try { await window.storage.set("ifatarot:profile", JSON.stringify(updated)); } catch (e) {}
+    try { await safeSet("ifatarot:profile", JSON.stringify(updated)); } catch (e) {}
   }
   // The one case where a server "out of consultations" error can arrive despite the
   // client believing it's admin: the server restarted (every redeploy does this) and
@@ -1039,7 +1068,7 @@ export default function Ifatarot() {
       } else if (ins.kind === "power") {
         updated.vesselPowers = { ...prev.vesselPowers, [ins.area]: { name: ins.name, guidance: ins.guidance, date: new Date().toISOString() } };
       }
-      window.storage && window.storage.set("ifatarot:profile", JSON.stringify(updated)).catch(() => {});
+      window.storage && safeSet("ifatarot:profile", JSON.stringify(updated)).catch(() => {});
       return updated;
     });
   }
@@ -1049,7 +1078,7 @@ export default function Ifatarot() {
     const raw = await safeGet("ifatarot:notes-list");
     const list = raw ? JSON.parse(raw) : [];
     const filtered = list.filter((n) => n.id !== id);
-    try { await window.storage.set("ifatarot:notes-list", JSON.stringify(filtered)); } catch (e) {}
+    try { await safeSet("ifatarot:notes-list", JSON.stringify(filtered)); } catch (e) {}
     setNotesList(filtered);
     setConfirmDeleteId(null);
     if (activeNote && activeNote.id === id) setActiveNote(null);
@@ -1063,7 +1092,7 @@ export default function Ifatarot() {
       const data = await res.json();
       setAdminStats(data);
       setIsAdminDevice(true);
-      try { await window.storage.set("ifatarot:is-admin", "1"); } catch (e) {}
+      try { await safeSet("ifatarot:is-admin", "1"); } catch (e) {}
       setScreen("admin-stats");
     } catch (e) { /* silent — this input never shows an error, by design */ }
   }
@@ -1085,13 +1114,13 @@ export default function Ifatarot() {
   async function finishOnboarding() {
     const derived = withDerived(draftProfile);
     setProfile(derived); setDraftProfile(derived); setOnboarded(true);
-    try { await window.storage.set("ifatarot:profile", JSON.stringify(derived)); } catch (e) {}
+    try { await safeSet("ifatarot:profile", JSON.stringify(derived)); } catch (e) {}
     setScreen("begin");
   }
   async function saveSettings() {
     const derived = withDerived(draftProfile);
     setProfile(derived); setDraftProfile(derived);
-    try { await window.storage.set("ifatarot:profile", JSON.stringify(derived)); } catch (e) {}
+    try { await safeSet("ifatarot:profile", JSON.stringify(derived)); } catch (e) {}
     setScreen("home");
   }
 
@@ -1342,7 +1371,7 @@ export default function Ifatarot() {
     const raw = await safeGet("ifatarot:notes-list");
     const list = raw ? JSON.parse(raw) : [];
     list.unshift(entry);
-    try { await window.storage.set("ifatarot:notes-list", JSON.stringify(list.slice(0, 100))); } catch (e) {}
+    try { await safeSet("ifatarot:notes-list", JSON.stringify(list.slice(0, 100))); } catch (e) {}
     pushEvent("note", { dimension: dimKey });
     setNoteTitle("");
     clearSession();
@@ -1360,7 +1389,7 @@ export default function Ifatarot() {
     const note = normalizeNote(list[idx]);
     note.entries = [...note.entries, { type: "reading", ...readingData, date: new Date().toISOString() }];
     list[idx] = note;
-    try { await window.storage.set("ifatarot:notes-list", JSON.stringify(list)); } catch (e) {}
+    try { await safeSet("ifatarot:notes-list", JSON.stringify(list)); } catch (e) {}
     setActiveNote(note);
   }
   async function appendChatToNote(noteId, userText, agentText) {
@@ -1371,7 +1400,7 @@ export default function Ifatarot() {
     const note = normalizeNote(list[idx]);
     note.entries = [...note.entries, { type: "chat", role: "user", text: userText, date: new Date().toISOString() }, { type: "chat", role: "agent", text: agentText, date: new Date().toISOString() }];
     list[idx] = note;
-    try { await window.storage.set("ifatarot:notes-list", JSON.stringify(list)); } catch (e) {}
+    try { await safeSet("ifatarot:notes-list", JSON.stringify(list)); } catch (e) {}
     return note;
   }
   async function sendNoteChatMessage(note) {
@@ -1412,7 +1441,7 @@ export default function Ifatarot() {
   async function makeResident() {
     const updated = { ...profile, residentDimension: { dimKey, modeKey: mode.key, assignment } };
     setProfile(updated); setDraftProfile(updated);
-    try { await window.storage.set("ifatarot:profile", JSON.stringify(updated)); } catch (e) {}
+    try { await safeSet("ifatarot:profile", JSON.stringify(updated)); } catch (e) {}
     setResidentMsg(`${mode.title} is now where you reside. Look for "Draw" on your home screen.`);
   }
 
