@@ -1,100 +1,81 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 export default async function handler(req, res) {
-  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Device-Id");
   if (req.method === "OPTIONS") return res.status(200).end();
-  
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   const { system, messages, max_tokens } = req.body || {};
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
-
-  console.log("Generate called, has key:", !!apiKey, "key length:", apiKey.length);
-
+  
   if (!apiKey) {
-    return res.status(500).json({ error: "GEMINI_API_KEY not set in Vercel. Go to Settings -> Environment Variables and add it" });
+    return res.status(500).json({ error: "GEMINI_API_KEY not set in Vercel" });
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    
-    const modelsToTry = [
-      process.env.GEMINI_MODEL,
-      "gemini-2.0-flash",
-      "gemini-1.5-flash",
-      "gemini-1.5-flash-latest",
-      "gemini-pro"
-    ].filter(Boolean);
+    const ai = new GoogleGenAI({ apiKey: apiKey });
 
     let prompt = "";
     if (messages && messages.length) {
-      const last = messages[messages.length - 1];
-      prompt = last.content || "";
+      prompt = messages[messages.length-1].content || "";
     }
-    if (!prompt.trim()) prompt = "Provide Ifa and Tarot reading";
+    if (!prompt.trim()) prompt = "Give a brief Ifa/Tarot reading";
 
-    console.log("Prompt length:", prompt.length);
+    // Build full prompt with system
+    const fullPrompt = system ? `${system}\n\nQuestion/Reading request:\n${prompt}` : prompt;
+
+    // Try models in order - NEW API names as of 2026
+    const modelsToTry = [
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash",
+      "gemini-2.5-pro",
+      "gemini-3-flash-preview"
+    ];
 
     let lastError = null;
     let finalText = "";
 
     for (const modelName of modelsToTry) {
       try {
-        console.log(`Trying model: ${modelName}`);
-        const model = genAI.getGenerativeModel({ 
+        console.log(`Trying ${modelName}`);
+        const response = await ai.models.generateContent({
           model: modelName,
-          systemInstruction: system ? { role: "system", parts: [{ text: system.substring(0, 8000) }] } : undefined
-        });
-
-        const result = await model.generateContent({
-          contents: [{ role: "user", parts: [{ text: prompt.substring(0, 15000) }] }],
-          generationConfig: { 
-            maxOutputTokens: Math.min(max_tokens || 1500, 2000), 
+          contents: fullPrompt,
+          config: {
+            maxOutputTokens: Math.min(max_tokens || 1500, 2000),
             temperature: 0.85
           }
         });
-
-        const response = result.response;
-        finalText = response.text();
         
+        finalText = response.text || "";
         if (finalText && finalText.trim()) {
-          console.log(`SUCCESS with ${modelName}, text length: ${finalText.length}`);
+          console.log(`SUCCESS ${modelName}: ${finalText.length} chars`);
           break;
         }
       } catch (e) {
-        console.error(`Model ${modelName} failed:`, e.message);
+        console.log(`${modelName} failed: ${e.message}`);
         lastError = e;
         continue;
       }
     }
 
     if (!finalText || !finalText.trim()) {
-      const errMsg = lastError ? lastError.message : "All models returned empty";
-      console.error("All models failed:", errMsg);
-      
-      // Return a helpful error that frontend will display
-      if (errMsg.includes("API key") || errMsg.includes("fetching") || errMsg.includes("models") || errMsg.includes("400")) {
-        return res.status(500).json({ 
-          error: `Gemini error: ${errMsg}. FIX: 1) Enable API at https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com 2) Create new key at https://aistudio.google.com/app/apikey in NEW project 3) Add to Vercel env` 
-        });
-      }
-      
-      return res.status(500).json({ error: `Gemini failed after trying ${modelsToTry.join(", ")}: ${errMsg}` });
+      return res.status(500).json({ 
+        error: `All Gemini models failed. Last error: ${lastError ? lastError.message : "empty"}. Your key may need new API enabled: https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com` 
+      });
     }
 
-    console.log("Returning text, length:", finalText.length);
     return res.status(200).json({
       content: [{ text: finalText.trim() }],
       stop_reason: "stop"
     });
 
   } catch (e) {
-    console.error("Top-level error:", e);
-    return res.status(500).json({ error: e.message || "Gemini generation failed", stack: e.stack });
+    console.error("Top error:", e);
+    return res.status(500).json({ error: e.message });
   }
 }
